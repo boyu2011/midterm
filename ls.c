@@ -5,7 +5,6 @@
  * SYNOPSIS
  * ls [-AacdFfhiklnqRrSstuw1] [file ...]
  *
- *
  * Author: BoYu (boyu2011@gamil.com)
  *
  */
@@ -23,87 +22,155 @@
 #include <grp.h>
 #include <time.h>
 
+#define DEBUG_INFO
+
+struct file_info
+{
+    struct stat stat;
+    char type_permission_info[255];
+    int number_of_links;
+    struct passwd * password;
+    struct group * group;
+    char * owner_name;
+    char * group_name;
+    int number_of_bytes;
+    char time_buf[255];
+    char * path_name;
+
+    struct file_info * next;
+};
+
+struct file_info * file_info_list_head = NULL;
+
+
 void usage();
 void display(struct dirent * dirp);
 
 /* flags */
-int f_longform;
-
+int f_l_option;     /* long list */
+int f_A_option;     /* except . .. */
 
 void usage()
 {
 	printf("usage: ls [-AacdFfhiklnqRrSstuw1] [file ...]\n");
 }
 
-/* show one directory entry to the screen */
-
-void display(struct dirent * dirp)
+void record_file_info(char * path_name)
 {
-    /* -l option has set */
-	if ( f_longform )
-	{	
-	    struct stat stat_buf; 
-        char file_type;
-        struct passwd * password;
-        struct group * group;
-        char * owner_name;
-        char * group_name;
-        char time_buf [255];
-        char perm_buf [255];
+    struct file_info * node_ptr = file_info_list_head;
+    struct file_info * new_node = malloc (sizeof(struct file_info));
+    struct stat stat_buf;
+    struct passwd * password;
+    struct group * group;
 
-        /* get file status */
-        if ( stat ( dirp->d_name, &stat_buf ) < 0 )
-        {
-            fprintf ( stderr, "stat() error" );
-            return;
-        }
-
-        /* get file type */
-        if (S_ISREG(stat_buf.st_mode))
-            file_type = '-';
-        else if (S_ISDIR(stat_buf.st_mode))
-            file_type ='d';
-        else if (S_ISCHR(stat_buf.st_mode))
-            file_type = 'c';
-        else if (S_ISBLK(stat_buf.st_mode))
-            file_type = 'b';
-        else if (S_ISFIFO(stat_buf.st_mode))
-            file_type = 'p';
-        else if (S_ISLNK(stat_buf.st_mode))
-            file_type = 'l';
-        else if (S_ISSOCK(stat_buf.st_mode))
-            file_type = 's';
-
-        /* get file type and permissons */
-        strmode ( stat_buf.st_mode, perm_buf );
+    new_node->next = NULL;
     
-        /* get file owner */
-        password = getpwuid ( stat_buf.st_uid );
-        owner_name = password->pw_name;
-     
-        /* get file group owner */
-        group = getgrgid ( stat_buf.st_gid );
-        group_name = group->gr_name;
+    /* get file status */
+    if ( stat ( path_name, &stat_buf ) < 0 )
+    {
+        fprintf ( stderr, "stat() error" );
+        return;
+    }
 
-        /* get last modified time */
-        /* !!! time has a few minute gap !!! */
-        strftime ( time_buf, sizeof(time_buf), "%b %d %k:%m", 
-            (const struct tm *) localtime((const time_t *) & stat_buf.st_mtimespec) );
+    /* assign file stat info to file info structure */
+    
+    /* get file type and permissons */
+    strmode ( stat_buf.st_mode, new_node->type_permission_info );
+    /* get file number of links */
+    new_node->number_of_links = stat_buf.st_nlink;
+    /* get file owner */
+    password = getpwuid ( stat_buf.st_uid );
+    new_node->owner_name = password->pw_name; 
+    /* get file group owner */
+    group = getgrgid ( stat_buf.st_gid );
+    new_node->group_name = group->gr_name;
+    /* get number of bytes */
+    new_node->number_of_bytes = stat_buf.st_size;
+    /* get last modified time */
+    /* !!! time has a few minute gap !!! */
+    strftime ( new_node->time_buf,
+        sizeof(new_node->time_buf),
+        "%b %d %k:%m", 
+        (const struct tm *) localtime((const time_t *) & stat_buf.st_mtimespec) );
+    /* get file path name */
+    new_node->path_name = path_name;
+   
+    /* add new node into list */
+    if ( node_ptr == NULL )
+        file_info_list_head = new_node;
+    else
+    {
+        while ( node_ptr->next != NULL )
+        {
+             node_ptr = node_ptr->next;
+        }
+        node_ptr->next = new_node;
+    }
+}
 
-        /* output file info to the screen */
-        printf ( "%s ", perm_buf );
-        printf ( "%2d ", stat_buf.st_nlink );
-        printf ( "%s  ", owner_name );
-        printf ( "%s ", group_name );
-        printf ( "%d\t", (int) stat_buf.st_size );
-        printf ( "%s\t", time_buf );
-        printf ( "%s\n", dirp->d_name );
-	}
-    /* no option has set */
-	else
-	{
-		printf ( "%s\t", dirp->d_name );
-	}
+void print_with_proper_option(struct file_info * node_ptr)
+{
+    if ( f_A_option )
+    {
+        /* ignore . and .. */
+        if ( strcmp ( node_ptr->path_name, "." ) &&
+             strcmp ( node_ptr->path_name, ".." ) )
+        {
+            if ( f_l_option )
+            {
+                printf ( "%s\t", node_ptr->type_permission_info );
+                printf ( "%2d\t",node_ptr->number_of_links );
+                printf ( "%s\t", node_ptr->owner_name );
+                printf ( "%s\t", node_ptr->group_name );
+                printf ( "%d\t", node_ptr->number_of_bytes );
+                printf ( "%s\t", node_ptr->time_buf );
+                printf ( "%s", node_ptr->path_name );
+                printf ( "\n" );
+            }
+            else
+            {
+                printf ( "%s", node_ptr->path_name );
+                printf ( "\n" );
+            }
+        }
+   }
+    else if ( f_l_option )
+    {
+        printf ( "%s\t", node_ptr->type_permission_info );
+        printf ( "%2d\t",node_ptr->number_of_links );
+        printf ( "%s\t", node_ptr->owner_name );
+        printf ( "%s\t", node_ptr->group_name );
+        printf ( "%d\t", node_ptr->number_of_bytes );
+        printf ( "%s\t", node_ptr->time_buf );
+        printf ( "%s", node_ptr->path_name );
+        printf ( "\n" );
+    }
+    else 
+    {
+        printf ( "%s", node_ptr->path_name );
+        printf ( "\n" );
+    }
+    
+}
+
+void print_file_info_list()
+{
+    struct file_info * node_ptr = file_info_list_head;
+    
+    if ( node_ptr == NULL )
+#ifdef DEBUG_INFO
+        printf ( "list is empty\n" );
+#endif
+    else
+    {
+        while ( node_ptr->next != NULL )
+        {
+            print_with_proper_option ( node_ptr );
+            node_ptr = node_ptr->next;
+        }
+         
+        print_with_proper_option ( node_ptr );
+    }
 }
 
 int main ( int argc, char ** argv )
@@ -121,7 +188,7 @@ int main ( int argc, char ** argv )
 		switch (ch)
 		{
 			case 'l':
-				f_longform = 1;
+				f_l_option = 1;
 				break;
 			default:
 				usage();
@@ -145,16 +212,17 @@ int main ( int argc, char ** argv )
 
 		while ( ( dirp = readdir(dp) ) != NULL )
 		{
-			display(dirp);
+            record_file_info ( dirp->d_name );
 		}
-		printf ( "\n" );
 
 		if ( closedir(dp) < 0 )
 		{
 			fprintf ( stderr, "can't close directory\n" );
 			exit(1);
 		}
-	}
+
+        print_file_info_list();
+    }
 
 	/* loop file arguments */
 	while (argc-- > 0)
@@ -169,7 +237,8 @@ int main ( int argc, char ** argv )
         /* argument is a file */
 		if ( S_ISREG ( stat_buf.st_mode ) )
 		{
-			printf ( "%s\n", *argv );
+            record_file_info ( *argv );
+            print_file_info_list();
 		}
         /* argument is a directory */
 		else if ( S_ISDIR ( stat_buf.st_mode ) )
@@ -191,7 +260,7 @@ int main ( int argc, char ** argv )
 
 			while ( ( dirp = readdir(dp) ) != NULL )
 			{
-				display(dirp);
+                record_file_info ( dirp->d_name );
 			}
 			printf ( "\n" );
 
@@ -200,6 +269,8 @@ int main ( int argc, char ** argv )
 				fprintf ( stderr, "can't close directory\n" );
 				exit(1);
 			}
+
+            print_file_info_list();
 		}
 		
 		argv++;
