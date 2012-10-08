@@ -23,9 +23,7 @@
 #include <time.h>
 
 #define DEBUG_INFO
-/*
 #define DARWIN
-*/
 
 struct file_info
 {
