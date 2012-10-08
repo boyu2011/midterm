@@ -110,8 +110,8 @@ void record_file_info(char * path_name)
 
 void print_with_proper_option(struct file_info * node_ptr)
 {
-    if ( f_A_option )
-    {
+     if ( f_A_option )
+     {
         /* ignore . and .. */
         if ( strcmp ( node_ptr->path_name, "." ) &&
              strcmp ( node_ptr->path_name, ".." ) )
@@ -133,7 +133,7 @@ void print_with_proper_option(struct file_info * node_ptr)
                 printf ( "\n" );
             }
         }
-   }
+    }
     else if ( f_l_option )
     {
         printf ( "%s\t", node_ptr->type_permission_info );
@@ -190,6 +190,9 @@ int main ( int argc, char ** argv )
 			case 'l':
 				f_l_option = 1;
 				break;
+            case 'A':
+                f_A_option = 1;
+                break;
 			default:
 				usage();
 		}
@@ -225,6 +228,7 @@ int main ( int argc, char ** argv )
     }
 
 	/* loop file arguments */
+
 	while (argc-- > 0)
 	{
 		stat_ret = stat ( *argv, &stat_buf );
