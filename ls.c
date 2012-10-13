@@ -22,15 +22,18 @@
 #include <grp.h>
 #include <time.h>
 
-#define DEBUG_INFO
-/*
+//#define DEBUG
+
+/* if DARWIN has defined, it means this program will be run at MacOS;
+   or it means the program will be run at Linux. */
 #define DARWIN
-*/
+
 
 struct file_info
 {
     struct stat stat;
     char type_permission_info[255];
+    char file_type;
     int number_of_links;
     struct passwd * password;
     struct group * group;
@@ -38,6 +41,9 @@ struct file_info
     char * group_name;
     int number_of_bytes;
     char time_buf[255];
+    char last_access_time[255];         /* ls -u */
+    char last_modi_time[255];           /* default ls */
+    char last_change_time[255];         /* ls -c */
     char * path_name;
 
     struct file_info * next;
@@ -46,12 +52,16 @@ struct file_info
 struct file_info * file_info_list_head = NULL;
 
 
+
 void usage();
 void display(struct dirent * dirp);
+void sort_by_time_modi ();
 
 /* flags */
 int f_l_option;     /* long list */
 int f_A_option;     /* except . .. */
+int f_a_option;     /* include directory entries whose names begin with a dot ('.') */
+int f_F_option;     /* mark file type */
 
 void usage()
 {
@@ -66,39 +76,92 @@ void record_file_info(char * path_name)
     struct passwd * password;
     struct group * group;
 
+    /* 
+        initialize the new node
+    */
+
+    new_node->file_type = ' ';
     new_node->next = NULL;
     
-    /* get file status */
+    /* 
+        get file status 
+    */
+    
     if ( stat ( path_name, &stat_buf ) < 0 )
     {
         fprintf ( stderr, "stat() error" );
         return;
     }
 
-    /* assign file stat info to file info structure */
+    /* 
+       assign file stat info to file info structure 
+    */
     
     /* get file type and permissons */
+    
     strmode ( stat_buf.st_mode, new_node->type_permission_info );
+   
+    /* get file type */
+    
+    if ( S_ISDIR ( stat_buf.st_mode ) )
+        new_node->file_type = '/';
+    /* how to distinct an exec file???
+    else if ( S_ISREG ( stat_buf.st_mode ) )
+        file_type = '*';
+    */
+    else if ( S_ISLNK ( stat_buf.st_mode ) )
+        new_node->file_type = '%';
+    /* how to distinct a whiteout file ???
+    else if ( )
+    */
+    else if ( S_ISSOCK ( stat_buf.st_mode ) )
+        new_node->file_type = '=';
+    else if ( S_ISFIFO ( stat_buf.st_mode ) )
+        new_node->file_type = '|';
+
     /* get file number of links */
+    
     new_node->number_of_links = stat_buf.st_nlink;
+    
     /* get file owner */
+    
     password = getpwuid ( stat_buf.st_uid );
     new_node->owner_name = password->pw_name; 
+    
     /* get file group owner */
+    
     group = getgrgid ( stat_buf.st_gid );
     new_node->group_name = group->gr_name;
+    
     /* get number of bytes */
+    
     new_node->number_of_bytes = stat_buf.st_size;
+
+    /* get last access time */
+    
+    strftime ( new_node->last_access_time,
+               sizeof(new_node->last_access_time),
+               "%b %d %R",
+               localtime ( & stat_buf.st_atime ) );
+
     /* get last modified time */
-    /* !!! time has a few minute gap !!! */
-    strftime ( new_node->time_buf,
-        sizeof(new_node->time_buf),
-        "%b %d %k:%m",
-#ifdef DARWIN
-        (const struct tm *) localtime((const time_t *) & stat_buf.st_mtimespec) );
-#else
-        (const struct tm *) localtime((const time_t *) & stat_buf.st_mtime) );
+
+    strftime ( new_node->last_modi_time,
+               sizeof(new_node->last_modi_time),
+               "%b %d %R",
+               localtime ( &stat_buf.st_mtime ) );
+
+#ifdef DEBUG
+    printf ( "\n---%d---\n", stat_buf.st_mtime );
 #endif
+
+    /* get last change time */
+    
+    strftime ( new_node->last_change_time,
+               sizeof(new_node->last_change_time),
+               "%b %d %R",
+               localtime ( &stat_buf.st_ctime ) );
+    
     /* get file path name */
     new_node->path_name = path_name;
    
@@ -117,47 +180,62 @@ void record_file_info(char * path_name)
 
 void print_with_proper_option(struct file_info * node_ptr)
 {
-     if ( f_A_option )
-     {
-        /* ignore . and .. */
-        if ( strcmp ( node_ptr->path_name, "." ) &&
-             strcmp ( node_ptr->path_name, ".." ) )
+    /* long format flag specified */
+
+    if ( f_l_option )
+    {
+        if ( f_A_option )
         {
-            if ( f_l_option )
+            /* ignore . and .. */
+            if ( ! ( strcmp ( node_ptr->path_name, "." ) &&
+                     strcmp ( node_ptr->path_name, "..") ))
             {
-                printf ( "%s\t", node_ptr->type_permission_info );
-                printf ( "%2d\t",node_ptr->number_of_links );
-                printf ( "%s\t", node_ptr->owner_name );
-                printf ( "%s\t", node_ptr->group_name );
-                printf ( "%d\t", node_ptr->number_of_bytes );
-                printf ( "%s\t", node_ptr->time_buf );
-                printf ( "%s", node_ptr->path_name );
-                printf ( "\n" );
-            }
-            else
-            {
-                printf ( "%s", node_ptr->path_name );
-                printf ( "\n" );
+                return;
             }
         }
-    }
-    else if ( f_l_option )
-    {
+        else if ( f_a_option )
+        {
+            //....
+        }
+
         printf ( "%s\t", node_ptr->type_permission_info );
         printf ( "%2d\t",node_ptr->number_of_links );
         printf ( "%s\t", node_ptr->owner_name );
         printf ( "%s\t", node_ptr->group_name );
         printf ( "%d\t", node_ptr->number_of_bytes );
-        printf ( "%s\t", node_ptr->time_buf );
+        printf ( "%s\t", node_ptr->last_modi_time );
         printf ( "%s", node_ptr->path_name );
+        if ( f_F_option )
+        {
+            if ( node_ptr->file_type != ' ' )
+                printf ( "%c", node_ptr->file_type );
+        }
         printf ( "\n" );
     }
     else 
     {
+        if ( f_A_option )
+        {
+            /* ignore . and .. */
+            if ( ! ( strcmp ( node_ptr->path_name, "." ) &&
+                     strcmp ( node_ptr->path_name, "..") ))
+            {
+                return;
+            }
+        }
+        else if ( f_a_option )
+        {
+            //....
+        }
+
         printf ( "%s", node_ptr->path_name );
+        if ( f_F_option )
+        {
+            if ( node_ptr->file_type != ' ' )
+                printf ( "%c", node_ptr->file_type );
+        }        
         printf ( "\n" );
     }
-    
 }
 
 void print_file_info_list()
@@ -165,19 +243,43 @@ void print_file_info_list()
     struct file_info * node_ptr = file_info_list_head;
     
     if ( node_ptr == NULL )
-#ifdef DEBUG_INFO
+#ifdef DEBUG
         printf ( "list is empty\n" );
+#else
+        return;
 #endif
     else
     {
         while ( node_ptr->next != NULL )
         {
-            print_with_proper_option ( node_ptr );
+#ifdef DEBUG
+            printf ( "%s\t", node_ptr->path_name );
+            printf ( "%s\t%s\t%s",   
+                     node_ptr->last_access_time, 
+                     node_ptr->last_modi_time, 
+                     node_ptr->last_change_time );
+            printf ( "\n" );
+#else
+            print_with_proper_option(node_ptr);
+#endif
             node_ptr = node_ptr->next;
         }
-         
-        print_with_proper_option ( node_ptr );
+#ifdef DEBUG 
+        printf ( "%s\t", node_ptr->path_name );
+        printf ( "%s\t%s\t%s", 
+                 node_ptr->last_access_time, 
+                 node_ptr->last_modi_time,
+                 node_ptr->last_change_time );
+        printf ( "\n" );
+#else
+        print_with_proper_option(node_ptr);
+#endif
     }
+}
+
+void sort_by_time_modi ()
+{
+
 }
 
 int main ( int argc, char ** argv )
@@ -199,6 +301,12 @@ int main ( int argc, char ** argv )
 				break;
             case 'A':
                 f_A_option = 1;
+                break;
+            case 'a':
+                f_a_option = 1;
+                break;
+            case 'F':
+                f_F_option = 1;
                 break;
 			default:
 				usage();
