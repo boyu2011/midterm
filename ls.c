@@ -7,6 +7,9 @@
  *
  * Author: BoYu (boyu2011@gamil.com)
  *
+ *
+ * bug: how to deal with -c and -u override each other!!
+ *
  */
 
 #include <unistd.h>
@@ -28,6 +31,9 @@
    or it means the program will be run at Linux. */
 #define DARWIN
 
+/*
+    data structures
+*/
 
 struct file_info
 {
@@ -41,27 +47,51 @@ struct file_info
     char * group_name;
     int number_of_bytes;
     char time_buf[255];
+    
     char last_access_time[255];         /* ls -u */
     char last_modi_time[255];           /* default ls */
     char last_change_time[255];         /* ls -c */
+    time_t a_time;
+    time_t m_time;
+    time_t c_time;
+
     char * path_name;
 
     struct file_info * next;
 };
 
+/* 
+    global variables
+*/
+
 struct file_info * file_info_list_head = NULL;
 
 
+/*
+    function prototypes
+*/
 
 void usage();
 void display(struct dirent * dirp);
-void sort_by_time_modi ();
+struct file_info * sort_by_time_modi ( struct file_info * pList );
+struct file_info * sort_by_time_change ( struct file_info * pList );
+struct file_info * sort_by_time_access ( struct file_info * pList );
 
-/* flags */
-int f_l_option;     /* long list */
+/* 
+    flags 
+*/
+
 int f_A_option;     /* except . .. */
 int f_a_option;     /* include directory entries whose names begin with a dot ('.') */
+int f_c_option;     /* use time when file status was last changed, instead of time 
+                       of last modification of the file for sorting (-t) or
+                       printing (-l) */
 int f_F_option;     /* mark file type */
+int f_l_option;     /* long list */
+int f_t_option;     /* sorted by time modified before sorting the operands by
+                       lexicographical order */
+int f_u_option;     /* use time of last access, instead of last modification of the file
+                       for sorting (-t) or printing (-l). */
 
 void usage()
 {
@@ -144,12 +174,16 @@ void record_file_info(char * path_name)
                "%b %d %R",
                localtime ( & stat_buf.st_atime ) );
 
+    new_node->a_time = stat_buf.st_atime;
+
     /* get last modified time */
 
     strftime ( new_node->last_modi_time,
                sizeof(new_node->last_modi_time),
                "%b %d %R",
                localtime ( &stat_buf.st_mtime ) );
+
+    new_node->m_time = stat_buf.st_mtime; 
 
 #ifdef DEBUG
     printf ( "\n---%d---\n", stat_buf.st_mtime );
@@ -162,6 +196,8 @@ void record_file_info(char * path_name)
                "%b %d %R",
                localtime ( &stat_buf.st_ctime ) );
     
+    new_node->c_time = stat_buf.st_ctime;
+
     /* get file path name */
     new_node->path_name = path_name;
    
@@ -203,13 +239,22 @@ void print_with_proper_option(struct file_info * node_ptr)
         printf ( "%s\t", node_ptr->owner_name );
         printf ( "%s\t", node_ptr->group_name );
         printf ( "%d\t", node_ptr->number_of_bytes );
-        printf ( "%s\t", node_ptr->last_modi_time );
+       
+        /* bug: how to deal with -c -u override */
+        if ( f_c_option )
+            printf ( "%s\t", node_ptr->last_change_time );
+        else if ( f_u_option )
+            printf ( "%s\t", node_ptr->last_access_time );
+        else
+            printf ( "%s\t", node_ptr->last_modi_time );
+        
         printf ( "%s", node_ptr->path_name );
         if ( f_F_option )
         {
             if ( node_ptr->file_type != ' ' )
                 printf ( "%c", node_ptr->file_type );
         }
+
         printf ( "\n" );
     }
     else 
@@ -240,8 +285,22 @@ void print_with_proper_option(struct file_info * node_ptr)
 
 void print_file_info_list()
 {
+   
+    /* 
+        sort the file_info list if needed
+    */
+
+    if ( f_t_option )
+    {
+        file_info_list_head = sort_by_time_modi ( file_info_list_head );
+    }
+
+    /*
+        printing
+    */
+
     struct file_info * node_ptr = file_info_list_head;
-    
+
     if ( node_ptr == NULL )
 #ifdef DEBUG
         printf ( "list is empty\n" );
@@ -260,6 +319,7 @@ void print_file_info_list()
                      node_ptr->last_change_time );
             printf ( "\n" );
 #else
+            // !!!
             print_with_proper_option(node_ptr);
 #endif
             node_ptr = node_ptr->next;
@@ -272,15 +332,50 @@ void print_file_info_list()
                  node_ptr->last_change_time );
         printf ( "\n" );
 #else
+        // !!!
         print_with_proper_option(node_ptr);
 #endif
     }
 }
 
-void sort_by_time_modi ()
+struct file_info * sort_by_time_modi ( struct file_info * pList )
 {
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
 
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {
+            /* does head belong here? */
+            if ( *ppTrail == NULL || pHead->m_time > (*ppTrail)->m_time )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
 }
+
 
 int main ( int argc, char ** argv )
 {
@@ -296,19 +391,28 @@ int main ( int argc, char ** argv )
 	{
 		switch (ch)
 		{
-			case 'l':
-				f_l_option = 1;
-				break;
             case 'A':
                 f_A_option = 1;
                 break;
             case 'a':
                 f_a_option = 1;
                 break;
+            case 'c':
+                f_c_option = 1;
+                break;
             case 'F':
                 f_F_option = 1;
                 break;
-			default:
+			case 'l':
+				f_l_option = 1;
+				break;
+            case 't':
+                f_t_option = 1;
+                break;
+			case 'u':
+                f_u_option = 1;
+                break;
+            default:
 				usage();
 		}
 	}
