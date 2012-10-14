@@ -25,7 +25,7 @@
 #include <grp.h>
 #include <time.h>
 
-//#define DEBUG
+#define DEBUG
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
    or it means the program will be run at Linux. */
@@ -38,6 +38,7 @@
 struct file_info
 {
     struct stat stat;
+    long inode_number;
     char type_permission_info[255];
     char file_type;
     int number_of_links;
@@ -55,7 +56,7 @@ struct file_info
     time_t m_time;
     time_t c_time;
 
-    char * path_name;
+    char path_name[255];
 
     struct file_info * next;
 };
@@ -74,24 +75,39 @@ struct file_info * file_info_list_head = NULL;
 void usage();
 void display(struct dirent * dirp);
 struct file_info * sort_by_time_modi ( struct file_info * pList );
-struct file_info * sort_by_time_change ( struct file_info * pList );
-struct file_info * sort_by_time_access ( struct file_info * pList );
+
 
 /* 
     flags 
 */
 
 int f_A_option;     /* except . .. */
-int f_a_option;     /* include directory entries whose names begin with a dot ('.') */
-int f_c_option;     /* use time when file status was last changed, instead of time 
-                       of last modification of the file for sorting (-t) or
-                       printing (-l) */
+
+int f_a_option;     /* include directory entries whose names begin 
+                       with a dot ('.') */
+
+int f_c_option;     /* use time when file status was last changed, 
+                       instead of time of last modification of the
+                       file for sorting (-t) or printing (-l) */
+
+int f_d_option;     /* directories are listed as plain files ( not
+                       searched recursively ) and symbolic links in
+                       the argument list are not indirected through
+                    */
+
 int f_F_option;     /* mark file type */
+
+int f_i_option;     /* for each file, print the file's file file 
+                       serial number ( inode number ) */
+
 int f_l_option;     /* long list */
-int f_t_option;     /* sorted by time modified before sorting the operands by
-                       lexicographical order */
-int f_u_option;     /* use time of last access, instead of last modification of the file
-                       for sorting (-t) or printing (-l). */
+
+int f_t_option;     /* sorted by time modified before sorting the 
+                       operands by lexicographical order */
+
+int f_u_option;     /* use time of last access, instead of last
+                       modification of the file for sorting (-t) 
+                       or printing (-l). */
 
 void usage()
 {
@@ -126,7 +142,11 @@ void record_file_info(char * path_name)
     /* 
        assign file stat info to file info structure 
     */
-    
+   
+    /* get file's file serial number (inode number) */
+
+    new_node->inode_number = stat_buf.st_ino;
+
     /* get file type and permissons */
     
     strmode ( stat_buf.st_mode, new_node->type_permission_info );
@@ -185,10 +205,6 @@ void record_file_info(char * path_name)
 
     new_node->m_time = stat_buf.st_mtime; 
 
-#ifdef DEBUG
-    printf ( "\n---%d---\n", stat_buf.st_mtime );
-#endif
-
     /* get last change time */
     
     strftime ( new_node->last_change_time,
@@ -199,8 +215,8 @@ void record_file_info(char * path_name)
     new_node->c_time = stat_buf.st_ctime;
 
     /* get file path name */
-    new_node->path_name = path_name;
-   
+    strcpy ( new_node->path_name, path_name );
+    
     /* add new node into list */
     if ( node_ptr == NULL )
         file_info_list_head = new_node;
@@ -233,11 +249,18 @@ void print_with_proper_option(struct file_info * node_ptr)
         {
             //....
         }
+        
+        if ( f_i_option )
+            printf ( "%ld\t", node_ptr->inode_number );
 
         printf ( "%s\t", node_ptr->type_permission_info );
+        
         printf ( "%2d\t",node_ptr->number_of_links );
+        
         printf ( "%s\t", node_ptr->owner_name );
+        
         printf ( "%s\t", node_ptr->group_name );
+        
         printf ( "%d\t", node_ptr->number_of_bytes );
        
         /* bug: how to deal with -c -u override */
@@ -273,6 +296,9 @@ void print_with_proper_option(struct file_info * node_ptr)
             //....
         }
 
+        if ( f_i_option )
+            printf ( "%ld\t", node_ptr->inode_number );
+        
         printf ( "%s", node_ptr->path_name );
         if ( f_F_option )
         {
@@ -285,7 +311,6 @@ void print_with_proper_option(struct file_info * node_ptr)
 
 void print_file_info_list()
 {
-   
     /* 
         sort the file_info list if needed
     */
@@ -302,39 +327,19 @@ void print_file_info_list()
     struct file_info * node_ptr = file_info_list_head;
 
     if ( node_ptr == NULL )
-#ifdef DEBUG
-        printf ( "list is empty\n" );
-#else
+    {
         return;
-#endif
+    }
     else
     {
         while ( node_ptr->next != NULL )
         {
-#ifdef DEBUG
-            printf ( "%s\t", node_ptr->path_name );
-            printf ( "%s\t%s\t%s",   
-                     node_ptr->last_access_time, 
-                     node_ptr->last_modi_time, 
-                     node_ptr->last_change_time );
-            printf ( "\n" );
-#else
-            // !!!
             print_with_proper_option(node_ptr);
-#endif
+            
             node_ptr = node_ptr->next;
         }
-#ifdef DEBUG 
-        printf ( "%s\t", node_ptr->path_name );
-        printf ( "%s\t%s\t%s", 
-                 node_ptr->last_access_time, 
-                 node_ptr->last_modi_time,
-                 node_ptr->last_change_time );
-        printf ( "\n" );
-#else
-        // !!!
+
         print_with_proper_option(node_ptr);
-#endif
     }
 }
 
@@ -400,8 +405,14 @@ int main ( int argc, char ** argv )
             case 'c':
                 f_c_option = 1;
                 break;
+            case 'd':
+                f_d_option = 1;
+                break;
             case 'F':
                 f_F_option = 1;
+                break;
+            case 'i':
+                f_i_option = 1;
                 break;
 			case 'l':
 				f_l_option = 1;
@@ -431,6 +442,14 @@ int main ( int argc, char ** argv )
 			fprintf ( stderr, "can't open '%s'\n", "." );
 			exit(1);
 		}
+
+        /* enter directory */
+        if ( chdir(".") == -1 )
+        {
+            fprintf ( stderr, "can't chdir to '%s': %s\n",
+                *argv, strerror(errno) );
+            exit (1);
+        }
 
 		while ( ( dirp = readdir(dp) ) != NULL )
 		{
