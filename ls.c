@@ -25,6 +25,8 @@
 #include <grp.h>
 #include <time.h>
 
+#include <libutil.h>
+
 #define DEBUG
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
@@ -44,8 +46,10 @@ struct file_info
     int number_of_links;
     struct passwd * password;
     struct group * group;
-    char * owner_name;
-    char * group_name;
+    long user_id;
+    char owner_name[255];
+    long group_id;
+    char group_name[255];
     int number_of_bytes;
     char time_buf[255];
     
@@ -57,6 +61,8 @@ struct file_info
     time_t c_time;
 
     char path_name[255];
+
+    long number_of_blocks;
 
     struct file_info * next;
 };
@@ -97,10 +103,26 @@ int f_d_option;     /* directories are listed as plain files ( not
 
 int f_F_option;     /* mark file type */
 
+int f_h_option;     /* modifies the -s and -l options, causing the 
+                       size to be reported in bytes displayed in a
+                       human readable format. Overrides -k */
+
 int f_i_option;     /* for each file, print the file's file file 
                        serial number ( inode number ) */
 
 int f_l_option;     /* long list */
+
+int f_n_option;     /* the same as -l, except that the owner and 
+                       group IDs are displayed numerically rather
+                       than converting to a owner or group name */
+
+int f_s_option;     /* display the number of file system blocks
+                       actually used by each file, in units of 512
+                       bytes or BLOCKSIZE ( see ENVIRONMENT) where
+                       partial units are rounded up to the next 
+                       integer value. If the output is to a terminal
+                       a total sum for all the file sizes is output
+                       on a line before the listing. */ 
 
 int f_t_option;     /* sorted by time modified before sorting the 
                        operands by lexicographical order */
@@ -175,14 +197,16 @@ void record_file_info(char * path_name)
     
     /* get file owner */
     
+    new_node->user_id = stat_buf.st_uid;
     password = getpwuid ( stat_buf.st_uid );
-    new_node->owner_name = password->pw_name; 
-    
+    strcpy ( new_node->owner_name, password->pw_name );
+
     /* get file group owner */
     
+    new_node->group_id = stat_buf.st_gid;
     group = getgrgid ( stat_buf.st_gid );
-    new_node->group_name = group->gr_name;
-    
+    strcpy ( new_node->group_name, group->gr_name );
+
     /* get number of bytes */
     
     new_node->number_of_bytes = stat_buf.st_size;
@@ -215,9 +239,16 @@ void record_file_info(char * path_name)
     new_node->c_time = stat_buf.st_ctime;
 
     /* get file path name */
-    strcpy ( new_node->path_name, path_name );
     
-    /* add new node into list */
+    strcpy ( new_node->path_name, path_name );
+   
+    /* get number of file system blocks actually used */
+
+    new_node->number_of_blocks = stat_buf.st_blocks;
+
+    /* 
+        add new node into list 
+    */
     if ( node_ptr == NULL )
         file_info_list_head = new_node;
     else
@@ -234,7 +265,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 {
     /* long format flag specified */
 
-    if ( f_l_option )
+    if ( f_l_option || f_n_option )
     {
         if ( f_A_option )
         {
@@ -253,16 +284,63 @@ void print_with_proper_option(struct file_info * node_ptr)
         if ( f_i_option )
             printf ( "%ld\t", node_ptr->inode_number );
 
+        if ( f_s_option )
+        {
+            if ( f_h_option )
+            {
+                char szbuf[5];
+                if ( (humanize_number(szbuf,
+                        sizeof(szbuf), 
+                        (int64_t)node_ptr->number_of_blocks,
+                        "",
+                        HN_AUTOSCALE,
+                        (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
+                {
+                    fprintf ( stderr, "humanize_number()" );
+                    exit(1);
+                }
+                printf ( "%s\t", szbuf );
+            }
+            else
+            {
+                printf ( "%ld\t", node_ptr->number_of_blocks );
+            }
+        }
+
         printf ( "%s\t", node_ptr->type_permission_info );
         
         printf ( "%2d\t",node_ptr->number_of_links );
         
-        printf ( "%s\t", node_ptr->owner_name );
+        if ( f_l_option )
+            printf ( "%s\t", node_ptr->owner_name );
+        else
+            printf ( "%ld\t", node_ptr->user_id );
+
+        if ( f_l_option )
+            printf ( "%s\t", node_ptr->group_name );
+        else
+            printf ( "%ld\t", node_ptr->group_id );
         
-        printf ( "%s\t", node_ptr->group_name );
-        
-        printf ( "%d\t", node_ptr->number_of_bytes );
-       
+        if ( f_h_option )
+        {
+            char szbuf[5];
+            if ( (humanize_number(szbuf,
+                    sizeof(szbuf), 
+                    (int64_t)node_ptr->number_of_bytes,
+                    "",
+                    HN_AUTOSCALE,
+                    (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
+            {
+                fprintf ( stderr, "humanize_number()" );
+                exit(1);
+            }
+            printf ( "%s\t", szbuf );
+        }
+        else
+        {
+            printf ( "%d\t", node_ptr->number_of_bytes );
+        }
+
         /* bug: how to deal with -c -u override */
         if ( f_c_option )
             printf ( "%s\t", node_ptr->last_change_time );
@@ -299,12 +377,34 @@ void print_with_proper_option(struct file_info * node_ptr)
         if ( f_i_option )
             printf ( "%ld\t", node_ptr->inode_number );
         
+        if ( f_s_option )
+        {    
+            if ( f_h_option )
+            {
+                char szbuf[5];
+                if ( (humanize_number(szbuf,
+                        sizeof(szbuf), 
+                        (int64_t)node_ptr->number_of_blocks,
+                        "",
+                        HN_AUTOSCALE,
+                        (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
+                {
+                    fprintf ( stderr, "humanize_number()" );
+                    exit(1);
+                }
+                printf ( "%s\t", szbuf );
+            }
+            else
+                printf ( "%ld\t", node_ptr->number_of_blocks );
+        }
+        
         printf ( "%s", node_ptr->path_name );
         if ( f_F_option )
         {
             if ( node_ptr->file_type != ' ' )
                 printf ( "%c", node_ptr->file_type );
-        }        
+        }  
+
         printf ( "\n" );
     }
 }
@@ -411,12 +511,21 @@ int main ( int argc, char ** argv )
             case 'F':
                 f_F_option = 1;
                 break;
+            case 'h':
+                f_h_option = 1;
+                break;
             case 'i':
                 f_i_option = 1;
                 break;
 			case 'l':
 				f_l_option = 1;
 				break;
+            case 'n':
+                f_n_option = 1;
+                break;
+            case 's':
+                f_s_option = 1;
+                break;
             case 't':
                 f_t_option = 1;
                 break;
