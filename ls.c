@@ -35,8 +35,9 @@
 #define ENABLE_H_OPTION
 */
 
-
-
+#ifdef ENABLE_H_OPTION
+#include <libutil.h>    /* for humanize_number() */
+#endif
 
 /*
     data structures
@@ -497,7 +498,9 @@ int main ( int argc, char ** argv )
 	int stat_ret;
 	struct stat stat_buf; 
 
-	/* parse options */
+	/* 
+        parse options
+    */
 
 	while ( ( ch = getopt(argc, argv, "AacdFfhiklnqRrSstuw1") ) != -1 )
 	{
@@ -547,12 +550,18 @@ int main ( int argc, char ** argv )
 	argc -= optind;
 	argv += optind;
 
-	/* parse file argument */
+	/* 
+        parse file argument
+    */
 
 	/* If no operands are given, the contents of the current directory
 	   are displayed. */
 	if ( argc == 0 )
 	{
+#ifdef DEBUG
+        printf ( "### since no operands are given.\n" );
+#endif
+
 		if ( ( dp = opendir(".") ) == NULL )
 		{
 			fprintf ( stderr, "can't open '%s'\n", "." );
@@ -581,15 +590,26 @@ int main ( int argc, char ** argv )
         print_file_info_list();
     }
 
-	/* loop file arguments */
+	/* 
+        loop file arguments 
+    */
 
 	while (argc-- > 0)
 	{
+#ifdef DEBUG
+        printf ( "\n### processing argv : %s\n", *argv );
+#endif
+
+        /* RE-initialize head of file_info linked list */
+        file_info_list_head = NULL;
+
+        /* get file information */
 		stat_ret = stat ( *argv, &stat_buf );
 		if ( stat_ret < 0 )
 		{
 			fprintf ( stderr, "stat error\n" );
-			continue;
+            argv++;
+			continue;   /* to process the next argv */
 		}
 	
         /* argument is a file */
@@ -620,7 +640,6 @@ int main ( int argc, char ** argv )
 			{
                 record_file_info ( dirp->d_name );
 			}
-			printf ( "\n" );
 
 			if ( closedir(dp) < 0 )
 			{
