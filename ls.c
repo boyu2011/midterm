@@ -25,14 +25,18 @@
 #include <grp.h>
 #include <time.h>
 
-#include <libutil.h>
-
-
 #define DEBUG
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
    or it means the program will be run at Linux. */
 #define DARWIN
+
+/*
+#define ENABLE_H_OPTION
+*/
+
+
+
 
 /*
     data structures
@@ -287,6 +291,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 
         if ( f_s_option )
         {
+#ifdef ENABLE_H_OPTION
             if ( f_h_option )
             {
                 char szbuf[5];
@@ -303,9 +308,8 @@ void print_with_proper_option(struct file_info * node_ptr)
                 printf ( "%s\t", szbuf );
             }
             else
-            {
+#endif
                 printf ( "%ld\t", node_ptr->number_of_blocks );
-            }
         }
 
         printf ( "%s\t", node_ptr->type_permission_info );
@@ -321,7 +325,8 @@ void print_with_proper_option(struct file_info * node_ptr)
             printf ( "%s\t", node_ptr->group_name );
         else
             printf ( "%ld\t", node_ptr->group_id );
-        
+
+#ifdef ENABLE_H_OPTION       
         if ( f_h_option )
         {
             char szbuf[5];
@@ -338,9 +343,8 @@ void print_with_proper_option(struct file_info * node_ptr)
             printf ( "%s\t", szbuf );
         }
         else
-        {
+#endif
             printf ( "%d\t", node_ptr->number_of_bytes );
-        }
 
         /* bug: how to deal with -c -u override */
         if ( f_c_option )
@@ -379,7 +383,8 @@ void print_with_proper_option(struct file_info * node_ptr)
             printf ( "%ld\t", node_ptr->inode_number );
         
         if ( f_s_option )
-        {    
+        {
+#ifdef ENABLE_H_OPTION
             if ( f_h_option )
             {
                 char szbuf[5];
@@ -396,6 +401,7 @@ void print_with_proper_option(struct file_info * node_ptr)
                 printf ( "%s\t", szbuf );
             }
             else
+#endif
                 printf ( "%ld\t", node_ptr->number_of_blocks );
         }
         
