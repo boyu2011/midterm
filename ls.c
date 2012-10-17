@@ -87,6 +87,7 @@ struct file_info * file_info_list_head = NULL;
 void usage();
 void display(struct dirent * dirp);
 struct file_info * sort_by_time_modi ( struct file_info * pList );
+struct file_info * sort_by_lexi ( struct file_info * pList );
 
 
 /* 
@@ -269,49 +270,56 @@ void record_file_info(char * path_name)
 
 void print_with_proper_option(struct file_info * node_ptr)
 {
+    if ( f_A_option )
+    {
+        /* ignore . and .. */
+        if ( ! ( strcmp ( node_ptr->path_name, "." ) &&
+                 strcmp ( node_ptr->path_name, "..") ))
+        {
+            return;
+        }
+    }
+    else if ( f_a_option )
+    {
+        //....
+    }
+    else
+    {
+        /* default output without file whose names begin with a dot ('.') */ 
+        if ( node_ptr->path_name[0] == '.' )
+            return;
+    }
+
+    if ( f_i_option )
+        printf ( "%ld\t", node_ptr->inode_number );
+
+    if ( f_s_option )
+    {
+#ifdef ENABLE_H_OPTION
+        if ( f_h_option )
+        {
+            char szbuf[5];
+            if ( (humanize_number(szbuf,
+                    sizeof(szbuf), 
+                    (int64_t)node_ptr->number_of_blocks,
+                    "",
+                    HN_AUTOSCALE,
+                    (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
+            {
+                fprintf ( stderr, "humanize_number()" );
+                exit(1);
+            }
+            printf ( "%s\t", szbuf );
+        }
+        else
+#endif
+            printf ( "%ld\t", node_ptr->number_of_blocks );
+    }
+   
     /* long format flag specified */
 
     if ( f_l_option || f_n_option )
     {
-        if ( f_A_option )
-        {
-            /* ignore . and .. */
-            if ( ! ( strcmp ( node_ptr->path_name, "." ) &&
-                     strcmp ( node_ptr->path_name, "..") ))
-            {
-                return;
-            }
-        }
-        else if ( f_a_option )
-        {
-            //....
-        }
-        
-        if ( f_i_option )
-            printf ( "%ld\t", node_ptr->inode_number );
-
-        if ( f_s_option )
-        {
-#ifdef ENABLE_H_OPTION
-            if ( f_h_option )
-            {
-                char szbuf[5];
-                if ( (humanize_number(szbuf,
-                        sizeof(szbuf), 
-                        (int64_t)node_ptr->number_of_blocks,
-                        "",
-                        HN_AUTOSCALE,
-                        (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
-                {
-                    fprintf ( stderr, "humanize_number()" );
-                    exit(1);
-                }
-                printf ( "%s\t", szbuf );
-            }
-            else
-#endif
-                printf ( "%ld\t", node_ptr->number_of_blocks );
-        }
 
         printf ( "%s\t", node_ptr->type_permission_info );
         
@@ -366,46 +374,6 @@ void print_with_proper_option(struct file_info * node_ptr)
     }
     else 
     {
-        if ( f_A_option )
-        {
-            /* ignore . and .. */
-            if ( ! ( strcmp ( node_ptr->path_name, "." ) &&
-                     strcmp ( node_ptr->path_name, "..") ))
-            {
-                return;
-            }
-        }
-        else if ( f_a_option )
-        {
-            //....
-        }
-
-        if ( f_i_option )
-            printf ( "%ld\t", node_ptr->inode_number );
-        
-        if ( f_s_option )
-        {
-#ifdef ENABLE_H_OPTION
-            if ( f_h_option )
-            {
-                char szbuf[5];
-                if ( (humanize_number(szbuf,
-                        sizeof(szbuf), 
-                        (int64_t)node_ptr->number_of_blocks,
-                        "",
-                        HN_AUTOSCALE,
-                        (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
-                {
-                    fprintf ( stderr, "humanize_number()" );
-                    exit(1);
-                }
-                printf ( "%s\t", szbuf );
-            }
-            else
-#endif
-                printf ( "%ld\t", node_ptr->number_of_blocks );
-        }
-        
         printf ( "%s", node_ptr->path_name );
         if ( f_F_option )
         {
@@ -426,6 +394,10 @@ void print_file_info_list()
     if ( f_t_option )
     {
         file_info_list_head = sort_by_time_modi ( file_info_list_head );
+    }
+    else
+    {
+        file_info_list_head = sort_by_lexi ( file_info_list_head );
     }
 
     /*
@@ -489,6 +461,45 @@ struct file_info * sort_by_time_modi ( struct file_info * pList )
     return pSorted;
 }
 
+struct file_info * sort_by_lexi ( struct file_info * pList )
+{
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
+
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {   
+            /* does head belong here? */
+            if ( *ppTrail == NULL ||
+                 ( ((pHead->path_name[0])-' ') < ((*ppTrail)->path_name[0]-' ') ) )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
+}
+
 
 int main ( int argc, char ** argv )
 {
@@ -497,8 +508,8 @@ int main ( int argc, char ** argv )
 	struct dirent * dirp;
 	int stat_ret;
 	struct stat stat_buf; 
-
-	/* 
+	
+    /* 
         parse options
     */
 
