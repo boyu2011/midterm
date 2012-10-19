@@ -628,6 +628,9 @@ struct file_info * sort_by_lexi ( struct file_info * pList )
 }
 
 
+static int counter = 0;
+
+
 int main ( int argc, char ** argv )
 {
 	int ch;
@@ -716,6 +719,7 @@ int main ( int argc, char ** argv )
                 // directory 
                 case FTS_D:
 
+                    // only put out one layer files
                     if ( p->fts_level != FTS_ROOTLEVEL && !f_R_option )
                         break;
 
@@ -759,48 +763,72 @@ int main ( int argc, char ** argv )
         /* RE-initialize head of file_info linked list */
         file_info_list_head = NULL;
 
-        if ( ( ftsp =
-             fts_open ( &*argv, FTS_LOGICAL, NULL ) ) == NULL )
-        {
-            // BUG, never executed!!!
-            fprintf ( stderr, "fts_open error %s", strerror(errno) );
+
+        /* get file information */
+        int stat_ret;
+        struct stat stat_buf;
+
+		stat_ret = stat ( *argv, &stat_buf );
+		if ( stat_ret < 0 )
+		{
+			fprintf ( stderr, "stat error\n" );
             argv++;
-            continue;
-        }
+			continue;   /* to process the next argv */
+		}
 
-        while ( ( p = fts_read ( ftsp ) ) != NULL )
+        /* argument is a file */
+		if ( S_ISREG ( stat_buf.st_mode ) )
+		{
+            record_file_info ( *argv );
+            print_file_info_list();
+		}
+        /* argument is a directory */
+        else
         {
-            switch ( p->fts_info ) 
-            {
-                /* directory */
-                case FTS_D:
 
-                    if ( p->fts_level != FTS_ROOTLEVEL && !f_R_option )
+            if ( ( ftsp =
+                 fts_open ( &*argv, FTS_LOGICAL, NULL ) ) == NULL )
+            {
+                // BUG, never executed!!!
+                fprintf ( stderr, "fts_open error %s", strerror(errno) );
+                argv++;
+                continue;
+            }
+
+            while ( ( p = fts_read ( ftsp ) ) != NULL )
+            {
+                switch ( p->fts_info ) 
+                {
+                    /* directory */
+                    case FTS_D:
+
+                        if ( p->fts_level != FTS_ROOTLEVEL && !f_R_option )
+                            break;
+
+                        printf ( "^^%s\n", p->fts_name );
+                        record_stat ( p->fts_statp, p->fts_name );
+
+                        // get files contained in a directory
+                        chp = fts_children ( ftsp, 0 );
+                        
+                        // loop directory's files
+                        for ( cur = chp; cur; cur = cur->fts_link )
+                        {
+                            printf ( "\t@@ %s\n", cur->fts_name );
+                            record_stat ( cur->fts_statp, cur->fts_name );
+                        }
                         break;
 
-                    printf ( "^^%s\n", p->fts_name );
-                    record_stat ( p->fts_statp, p->fts_name );
-
-                    // get files contained in a directory
-                    chp = fts_children ( ftsp, 0 );
-                    
-                    // loop directory's files
-                    for ( cur = chp; cur; cur = cur->fts_link )
-                    {
-                        printf ( "\t@@ %s\n", cur->fts_name );
-                        record_stat ( cur->fts_statp, cur->fts_name );
-                    }
-                    break;
-
-                default:
-                    break;
+                    default:
+                        break;
+                }
             }
-        }
-        
-        fts_close ( ftsp );
+            
+            fts_close ( ftsp );
 
-        print_file_info_list();
-		
+            print_file_info_list();
+		}
+
 		argv++;
 	}
 
