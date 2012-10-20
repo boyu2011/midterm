@@ -90,9 +90,12 @@ struct file_info * file_info_list_head = NULL;
 void usage();
 void record_stat( struct stat * statp, char * path_name );
 void display(struct dirent * dirp);
-struct file_info * sort_by_time_modi ( struct file_info * pList );
+struct file_info * sort_by_time_modi_desc ( struct file_info * pList );
+struct file_info * sort_by_time_modi_asce ( struct file_info * pList );
 struct file_info * sort_by_lexi ( struct file_info * pList );
-
+struct file_info * sort_by_lexi_rev ( struct file_info * pList );
+struct file_info * sort_by_size_desc ( struct file_info * pList );
+struct file_info * sort_by_size_asce ( struct file_info * pList );
 
 /* 
     flags 
@@ -134,6 +137,12 @@ int f_q_option;     /* force printing of non-printable characters
                        default when output is to a terminal */
 
 int f_R_option;     /* Recursively list subdirectories encountered */
+
+int f_r_option;     /* reverse the order of the sort to get reverse
+                       lexicographical order or the smallest or oldest
+                       entries first. */
+
+int f_S_option;     /* sort by size, largest file first. */
 
 int f_s_option;     /* display the number of file system blocks
                        actually used by each file, in units of 512
@@ -437,6 +446,7 @@ void print_with_proper_option(struct file_info * node_ptr)
     }
 }
 
+
 void print_file_info_list()
 {
     /* 
@@ -451,20 +461,33 @@ void print_file_info_list()
     /* 
         sort the file_info list if needed
     */
-/*
-    if ( f_f_option )
+
+    if ( ! f_f_option )
     {
-        return;
+        if ( f_t_option )
+        {
+            if ( ! f_r_option )
+                file_info_list_head = sort_by_time_modi_desc ( file_info_list_head );
+            else
+                file_info_list_head = sort_by_time_modi_asce ( file_info_list_head );
+        }
+        else if ( f_S_option )
+        {
+            if ( ! f_r_option )
+                file_info_list_head = sort_by_size_desc ( file_info_list_head );
+            else
+                file_info_list_head = sort_by_size_asce ( file_info_list_head );
+                
+        }
+        else
+        {
+            if ( ! f_r_option )
+                file_info_list_head = sort_by_lexi ( file_info_list_head );
+            else
+                file_info_list_head = sort_by_lexi_rev ( file_info_list_head );                          
+        }
     }
-    else if ( f_t_option )
-    {
-        file_info_list_head = sort_by_time_modi ( file_info_list_head );
-    }
-    else
-    {
-        file_info_list_head = sort_by_lexi ( file_info_list_head );
-    }
-*/
+
     /*
         printing
     */
@@ -490,7 +513,7 @@ void print_file_info_list()
 }
 
 
-struct file_info * sort_by_time_modi ( struct file_info * pList )
+struct file_info * sort_by_time_modi_desc ( struct file_info * pList )
 {
     /* build up the sorted array from the empty list */
     struct file_info * pSorted = NULL;
@@ -527,6 +550,46 @@ struct file_info * sort_by_time_modi ( struct file_info * pList )
 
     return pSorted;
 }
+
+
+struct file_info * sort_by_time_modi_asce ( struct file_info * pList )
+{
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
+
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {
+            /* does head belong here? */
+            if ( *ppTrail == NULL || pHead->m_time < (*ppTrail)->m_time )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
+}
+
 
 struct file_info * sort_by_lexi ( struct file_info * pList )
 {
@@ -567,6 +630,131 @@ struct file_info * sort_by_lexi ( struct file_info * pList )
 
     return pSorted;
 }
+
+struct file_info * sort_by_lexi_rev ( struct file_info * pList )
+{
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
+
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {   
+            /* does head belong here? */
+            if ( *ppTrail == NULL ||
+                 ( ((pHead->path_name[0])-' ') >
+                   ((*ppTrail)->path_name[0]-' ') ) )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
+}
+
+
+struct file_info * sort_by_size_desc ( struct file_info * pList )
+{
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
+
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {   
+            /* does head belong here? */
+            if ( *ppTrail == NULL ||
+                 ( (pHead->number_of_bytes) > 
+                   ((*ppTrail)->number_of_bytes) ) )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
+}
+
+
+struct file_info * sort_by_size_asce ( struct file_info * pList )
+{
+    /* build up the sorted array from the empty list */
+    struct file_info * pSorted = NULL;
+
+    /* take items off the input list one by one until empty */
+    while ( pList != NULL )
+    {
+        /* remember the head */
+        struct file_info * pHead = pList;
+        /* trailing pointer for efficient splice */
+        struct file_info ** ppTrail = &pSorted;
+
+        /* pop head off list */
+        pList = pList->next;
+
+        /* splice head into sorted list at proper place */
+        while (1)
+        {   
+            /* does head belong here? */
+            if ( *ppTrail == NULL ||
+                 ( (pHead->number_of_bytes) < 
+                   ((*ppTrail)->number_of_bytes) ) )
+            {
+                /* yes */
+                pHead->next = *ppTrail;
+                *ppTrail = pHead;
+                break;
+            }
+            else
+            {
+                /* no - continue down the list */
+                ppTrail = & (*ppTrail)->next;
+            }
+        }
+    }
+
+    return pSorted;
+}
+
+
+
 
 /*
     program entry
@@ -626,6 +814,12 @@ int main ( int argc, char ** argv )
                 break;
             case 'R':
                 f_R_option = 1;
+                break;
+            case 'r':
+                f_r_option = 1;
+                break;
+            case 'S':
+                f_S_option = 1;
                 break;
             case 's':
                 f_s_option = 1;
