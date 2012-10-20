@@ -27,7 +27,7 @@
 #include <fts.h>
 #include <ctype.h>
 
-#define DEBUG
+//#define DEBUG
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
    or it means the program will be run at Linux. */
@@ -88,6 +88,7 @@ struct file_info * file_info_list_head = NULL;
 */
 
 void usage();
+void record_stat( struct stat * statp, char * path_name );
 void display(struct dirent * dirp);
 struct file_info * sort_by_time_modi ( struct file_info * pList );
 struct file_info * sort_by_lexi ( struct file_info * pList );
@@ -148,6 +149,14 @@ int f_t_option;     /* sorted by time modified before sorting the
 int f_u_option;     /* use time of last access, instead of last
                        modification of the file for sorting (-t) 
                        or printing (-l). */
+
+int f_w_option;     /* force raw printing of non-printable characters,
+                       this is the default when output is not to a
+                       terminal. */
+
+int f_1_option;     /* force output to be one entry per line.
+                       This is the default when output is not
+                       to a terminal. */
 
 void usage()
 {
@@ -250,11 +259,16 @@ void record_stat( struct stat * statp, char * path_name )
     new_node->c_time = statp->st_ctime;
 
     /* get file path name */
-    
-    char str [255];
-    char * ptr;
-    if ( f_q_option )
+   
+    if ( isatty (1) || f_q_option )
     {
+        /* output is to a terminal or -q is set, then force 
+           printing of non-printable characters in file name
+           as the character '?'
+        */
+
+        char str [255];
+        char * ptr;
         strcpy ( str, path_name );
         ptr = &str[0];
         while ( *ptr != '\0' )
@@ -291,156 +305,14 @@ void record_stat( struct stat * statp, char * path_name )
 }
 
 
-void record_file_info(char * path_name)
-{
-    struct file_info * node_ptr = file_info_list_head;
-    struct file_info * new_node = malloc (sizeof(struct file_info));
-    struct stat stat_buf;
-    struct passwd * password;
-    struct group * group;
-
-    /* 
-        initialize the new node
-    */
-
-    new_node->file_type = ' ';
-    new_node->next = NULL;
-    
-    /* 
-        get file status 
-    */
-    
-    if ( stat ( path_name, &stat_buf ) < 0 )
-    {
-        fprintf ( stderr, "stat() error" );
-        return;
-    }
-
-    /* 
-       assign file stat info to file info structure 
-    */
-   
-    /* get file's file serial number (inode number) */
-
-    new_node->inode_number = stat_buf.st_ino;
-
-    /* get file type and permissons */
-    
-    strmode ( stat_buf.st_mode, new_node->type_permission_info );
-   
-    /* get file type */
-    
-    if ( S_ISDIR ( stat_buf.st_mode ) )
-        new_node->file_type = '/';
-    /* how to distinct an exec file???
-    else if ( S_ISREG ( stat_buf.st_mode ) )
-        file_type = '*';
-    */
-    else if ( S_ISLNK ( stat_buf.st_mode ) )
-        new_node->file_type = '%';
-    /* how to distinct a whiteout file ???
-    else if ( )
-    */
-    else if ( S_ISSOCK ( stat_buf.st_mode ) )
-        new_node->file_type = '=';
-    else if ( S_ISFIFO ( stat_buf.st_mode ) )
-        new_node->file_type = '|';
-
-    /* get file number of links */
-    
-    new_node->number_of_links = stat_buf.st_nlink;
-    
-    /* get file owner */
-    
-    new_node->user_id = stat_buf.st_uid;
-    password = getpwuid ( stat_buf.st_uid );
-    strcpy ( new_node->owner_name, password->pw_name );
-
-    /* get file group owner */
-    
-    new_node->group_id = stat_buf.st_gid;
-    group = getgrgid ( stat_buf.st_gid );
-    strcpy ( new_node->group_name, group->gr_name );
-
-    /* get number of bytes */
-    
-    new_node->number_of_bytes = stat_buf.st_size;
-
-    /* get last access time */
-    
-    strftime ( new_node->last_access_time,
-               sizeof(new_node->last_access_time),
-               "%b %d %R",
-               localtime ( & stat_buf.st_atime ) );
-
-    new_node->a_time = stat_buf.st_atime;
-
-    /* get last modified time */
-
-    strftime ( new_node->last_modi_time,
-               sizeof(new_node->last_modi_time),
-               "%b %d %R",
-               localtime ( &stat_buf.st_mtime ) );
-
-    new_node->m_time = stat_buf.st_mtime; 
-
-    /* get last change time */
-    
-    strftime ( new_node->last_change_time,
-               sizeof(new_node->last_change_time),
-               "%b %d %R",
-               localtime ( &stat_buf.st_ctime ) );
-    
-    new_node->c_time = stat_buf.st_ctime;
-
-    /* get file path name */
-
-    char str [255];
-    char * ptr;
-    if ( f_q_option )
-    {
-        strcpy ( str, path_name );
-        ptr = str;
-        while ( ptr != '\0' )
-        {
-            if ( isprint(*ptr) != 0 )
-            {
-                *ptr = '?'; 
-            }
-            ptr ++;
-        }
-        strcpy ( new_node->path_name, str );
-        printf ( "\nqqqqqq\n" );
-    }
-    else
-        strcpy ( new_node->path_name, path_name );
-   
-    /* get number of file system blocks actually used */
-
-    new_node->number_of_blocks = stat_buf.st_blocks;
-
-    /* 
-        add new node into list 
-    */
-    if ( node_ptr == NULL )
-        file_info_list_head = new_node;
-    else
-    {
-        while ( node_ptr->next != NULL )
-        {
-             node_ptr = node_ptr->next;
-        }
-        node_ptr->next = new_node;
-    }
-}
-
 /*
     put out one file_info node info    
 */
 
 void print_with_proper_option(struct file_info * node_ptr)
 {
-    /* put out a newline as a separator when come up with a directory item */
+    /* put out a newline as a separator when come up with a 
+       directory item */
     /* .... */
 
     if ( ! f_d_option )
@@ -466,7 +338,7 @@ void print_with_proper_option(struct file_info * node_ptr)
     }
 
     if ( f_i_option )
-        printf ( "%ld\t", node_ptr->inode_number );
+        printf ( "%ld ", node_ptr->inode_number );
 
     if ( f_s_option )
     {
@@ -484,11 +356,11 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%s\t", szbuf );
+            printf ( "%s ", szbuf );
         }
         else
 #endif
-            printf ( "%ld\t", node_ptr->number_of_blocks );
+            printf ( "%ld ", node_ptr->number_of_blocks );
     }
    
     /* long format flag specified */
@@ -496,19 +368,19 @@ void print_with_proper_option(struct file_info * node_ptr)
     if ( f_l_option || f_n_option )
     {
 
-        printf ( "%s\t", node_ptr->type_permission_info );
+        printf ( "%s ", node_ptr->type_permission_info );
         
-        printf ( "%2d\t",node_ptr->number_of_links );
+        printf ( "%2d ",node_ptr->number_of_links );
         
         if ( f_l_option )
-            printf ( "%s\t", node_ptr->owner_name );
+            printf ( "%s ", node_ptr->owner_name );
         else
-            printf ( "%ld\t", node_ptr->user_id );
+            printf ( "%ld ", node_ptr->user_id );
 
         if ( f_l_option )
-            printf ( "%s\t", node_ptr->group_name );
+            printf ( "%s ", node_ptr->group_name );
         else
-            printf ( "%ld\t", node_ptr->group_id );
+            printf ( "%ld ", node_ptr->group_id );
 
 #ifdef ENABLE_H_OPTION       
         if ( f_h_option )
@@ -524,19 +396,19 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%s\t", szbuf );
+            printf ( "%s ", szbuf );
         }
         else
 #endif
-            printf ( "%d\t", node_ptr->number_of_bytes );
+            printf ( "%6d ", node_ptr->number_of_bytes );
 
         /* bug: how to deal with -c -u override */
         if ( f_c_option )
-            printf ( "%s\t", node_ptr->last_change_time );
+            printf ( "%s ", node_ptr->last_change_time );
         else if ( f_u_option )
-            printf ( "%s\t", node_ptr->last_access_time );
+            printf ( "%s ", node_ptr->last_access_time );
         else
-            printf ( "%s\t", node_ptr->last_modi_time );
+            printf ( "%s ", node_ptr->last_modi_time );
         
         printf ( "%s", node_ptr->path_name );
         
@@ -545,8 +417,10 @@ void print_with_proper_option(struct file_info * node_ptr)
             if ( node_ptr->file_type != ' ' )
                 printf ( "%c", node_ptr->file_type );
         }
-
-        printf ( "\n" );
+    
+        /* list one entry per line to standard output */
+        if ( isatty (1) || f_1_option || !isatty (1) )
+            printf ( "\n" );
     }
     else 
     {
@@ -557,12 +431,23 @@ void print_with_proper_option(struct file_info * node_ptr)
                 printf ( "%c", node_ptr->file_type );
         }  
 
-        printf ( "\n" );
+        /* list one entry per line to standard output */
+        if ( isatty (1) || f_1_option || !isatty (1) )
+            printf ( "\n" );
     }
 }
 
 void print_file_info_list()
 {
+    /* 
+        -w
+    */
+/*
+    if ( f_w_option || !isatty(1) )
+    {
+    }
+*/
+
     /* 
         sort the file_info list if needed
     */
@@ -683,10 +568,6 @@ struct file_info * sort_by_lexi ( struct file_info * pList )
     return pSorted;
 }
 
-
-static int counter = 0;
-
-
 /*
     program entry
 */
@@ -755,6 +636,12 @@ int main ( int argc, char ** argv )
 			case 'u':
                 f_u_option = 1;
                 break;
+            case 'w':
+                f_w_option = 1;
+                break;
+            case '1':
+                f_1_option = 1;
+                break;
             default:
 				usage();
 		}
@@ -788,52 +675,106 @@ int main ( int argc, char ** argv )
             print_file_info_list ();
             exit (0);    
         }
-    
-        if ( ( ftsp =
-             fts_open ( &curr_dir, FTS_LOGICAL, NULL ) ) == NULL )
+        
+        if ( ! f_R_option )
         {
-            fprintf ( stderr, "fts_open error" );
-            fts_close ( ftsp );
-            exit(1);
-        }
-     
-        while ( ( p = fts_read ( ftsp ) ) != NULL )
-        {
-            switch ( p->fts_info ) 
+            /* read directory NAME, and list the files in it */	
+            if ( ( dp = opendir(curr_dir) ) == NULL )
             {
-                // directory 
-                case FTS_D:
+                fprintf ( stderr, "can't open '%s'\n", *argv );
+                exit(1);
+            }
 
-                    // only put out one layer files
-                    // BUG!! when ../../
-                    if ( p->fts_level != FTS_ROOTLEVEL && !f_R_option )
+            /* enter directory */
+            if ( chdir(curr_dir) == -1 )
+            {
+                fprintf ( stderr, "can't chdir to '%s': %s\n",
+                    curr_dir, strerror(errno) );
+                exit (1);
+            }
+
+            while ( ( dirp = readdir(dp) ) != NULL )
+            {
+                if ( stat ( dirp->d_name, &stat_buf ) < 0 )
+                {
+                    fprintf ( stderr, "stat() error" );
+                    exit (1);
+                }
+                
+                record_stat ( &stat_buf, dirp->d_name );
+            }
+
+            if ( closedir(dp) < 0 )
+            {
+                fprintf ( stderr, "can't close directory\n" );
+                exit(1);
+            }
+
+            print_file_info_list();
+            
+            exit (0);
+        }
+        /* -R */
+        else
+        {
+            if ( ( ftsp =
+                 fts_open ( &curr_dir, FTS_LOGICAL, NULL ) ) == NULL )
+            {
+                fprintf ( stderr, "fts_open error" );
+                fts_close ( ftsp );
+                exit(1);
+            }
+         
+            while ( ( p = fts_read ( ftsp ) ) != NULL )
+            {
+                switch ( p->fts_info ) 
+                {
+                    /* directory */ 
+                    case FTS_D:
+                        /*
+                        only put out one layer files
+                        BUG!! when ../../ */
+                        /*
+                        if ( p->fts_level != FTS_ROOTLEVEL && 
+                               !f_R_option )
+                            break;
+                        */
+#ifdef DEBUG
+                        printf ( "^^%s\n", p->fts_name );
+#endif
+                        /* print directory path */                        
+                        printf ( "%s:\n", p->fts_path ); 
+
+                        // get files contained in a directory
+                        chp = fts_children ( ftsp, 0 );
+                        
+                        // loop directory's files
+                        for ( cur = chp; cur; cur = cur->fts_link )
+                        {
+#ifdef DEBUG
+                            printf ( "\t@@ %s\n", cur->fts_name );
+#endif            
+                            record_stat ( cur->fts_statp, cur->fts_name );
+                        }
+                        print_file_info_list();
+                        
+                        printf ( "\n" );
+
+                        /* RE-initialize head of file_info linked list */
+                        file_info_list_head = NULL;
+
                         break;
 
-                    printf ( "^^%s\n", p->fts_name );
-                    record_stat ( p->fts_statp, p->fts_name );
-                    
-                    // get files contained in a directory
-                    chp = fts_children ( ftsp, 0 );
-                    
-                    // loop directory's files
-                    for ( cur = chp; cur; cur = cur->fts_link )
-                    {
-                        printf ( "\t@@ %s\n", cur->fts_name );
-                        record_stat ( cur->fts_statp, cur->fts_name );
-                    }
-                    break;
-
-                default:
-                    break;
+                    default:
+                        break;
+                }
             }
+            
+            fts_close ( ftsp );
+
+
+            exit (0);
         }
-        
-        fts_close ( ftsp );
-
-        print_file_info_list();
-
-        exit (0);
-
     }
 
 	/* 
@@ -860,7 +801,6 @@ int main ( int argc, char ** argv )
         /* argument is a file */
 		if ( S_ISREG ( stat_buf.st_mode ) )
 		{
-            //record_file_info ( *argv );
             record_stat ( &stat_buf, *argv );
             print_file_info_list();
 		}
@@ -929,7 +869,8 @@ int main ( int argc, char ** argv )
                      fts_open ( &*argv, FTS_LOGICAL, NULL ) ) == NULL )
                 {
                     // BUG, never executed!!!
-                    fprintf ( stderr, "fts_open error %s", strerror(errno) );
+                    fprintf ( stderr, "fts_open error %s", 
+                        strerror(errno) );
                     argv++;
                     continue;
                 }
@@ -941,11 +882,8 @@ int main ( int argc, char ** argv )
                         /* directory */
                         case FTS_D:
 
-                            //if ( p->fts_level != FTS_ROOTLEVEL && !f_R_option )
-                            //    break;
-
-                            printf ( "^^%s\n", p->fts_name );
-                            record_stat ( p->fts_statp, p->fts_name );
+                            /* print directory path */                        
+                            printf ( "%s:\n", p->fts_path ); 
 
                             // get files contained in a directory
                             chp = fts_children ( ftsp, 0 );
@@ -953,9 +891,16 @@ int main ( int argc, char ** argv )
                             // loop directory's files
                             for ( cur = chp; cur; cur = cur->fts_link )
                             {
-                                printf ( "\t@@ %s\n", cur->fts_name );
                                 record_stat ( cur->fts_statp, cur->fts_name );
                             }
+                            
+                            print_file_info_list();
+                            
+                            printf ( "\n" );
+
+                            /* RE-initialize head of file_info linked list */
+                            file_info_list_head = NULL;
+                            
                             break;
 
                         default:
