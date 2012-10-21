@@ -27,7 +27,9 @@
 #include <fts.h>
 #include <ctype.h>
 
-//#define DEBUG
+/*
+#define DEBUG
+*/
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
    or it means the program will be run at Linux. */
@@ -71,7 +73,7 @@ struct file_info
 
     char path_name[255];
 
-    long number_of_blocks;
+    unsigned long long number_of_blocks;
 
     struct file_info * next;
 };
@@ -125,6 +127,11 @@ int f_h_option;     /* modifies the -s and -l options, causing the
 
 int f_i_option;     /* for each file, print the file's file file 
                        serial number ( inode number ) */
+
+int f_k_option;     /* modifies the -s option, causing the sizes
+                       to be reported in kilobytes. The rightmost
+                       of the -k and -h flags overrides the previous 
+                       flag. see also -h. */
 
 int f_l_option;     /* long list */
 
@@ -206,15 +213,14 @@ void record_stat( struct stat * statp, char * path_name )
     
     if ( S_ISDIR ( statp->st_mode ) )
         new_node->file_type = '/';
-    /* how to distinct an exec file???
-    else if ( S_ISREG ( statp->st_mode ) )
-        file_type = '*';
-    */
+    else if ( access ( path_name, X_OK ) == 0)  /* executable file */
+        new_node->file_type = '*';
     else if ( S_ISLNK ( statp->st_mode ) )
+        new_node->file_type = '@';
+#ifdef S_ISWHT
+    else if ( S_ISWHT (statp->st_mode) )
         new_node->file_type = '%';
-    /* how to distinct a whiteout file ???
-    else if ( )
-    */
+#endif
     else if ( S_ISSOCK ( statp->st_mode ) )
         new_node->file_type = '=';
     else if ( S_ISFIFO ( statp->st_mode ) )
@@ -320,10 +326,6 @@ void record_stat( struct stat * statp, char * path_name )
 
 void print_with_proper_option(struct file_info * node_ptr)
 {
-    /* put out a newline as a separator when come up with a 
-       directory item */
-    /* .... */
-
     if ( ! f_d_option )
     {
         if ( f_A_option )
@@ -354,7 +356,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 #ifdef ENABLE_H_OPTION
         if ( f_h_option )
         {
-            char szbuf[5];
+            char szbuf[255];
             if ( (humanize_number(szbuf,
                     sizeof(szbuf), 
                     (int64_t)node_ptr->number_of_blocks,
@@ -365,11 +367,27 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%s ", szbuf );
+            printf ( "%3s ", szbuf );
+        }
+        else if ( f_k_option )
+        {
+            char szbuf[255];
+            if ( (humanize_number(szbuf,
+                    sizeof(szbuf), 
+                    (int64_t)node_ptr->number_of_blocks,
+                    "k",
+                    HN_AUTOSCALE,
+                    (HN_DECIMAL | HN_B | HN_NOSPACE))) == -1 )
+            {
+                fprintf ( stderr, "humanize_number()" );
+                exit(1);
+            }
+            printf ( "%3s ", szbuf );
+             
         }
         else
 #endif
-            printf ( "%ld ", node_ptr->number_of_blocks );
+            printf ( "%3lld ", node_ptr->number_of_blocks );
     }
    
     /* long format flag specified */
@@ -394,7 +412,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 #ifdef ENABLE_H_OPTION       
         if ( f_h_option )
         {
-            char szbuf[5];
+            char szbuf[255];
             if ( (humanize_number(szbuf,
                     sizeof(szbuf), 
                     (int64_t)node_ptr->number_of_bytes,
@@ -405,11 +423,11 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%s ", szbuf );
+            printf ( "%3s ", szbuf );
         }
         else
 #endif
-            printf ( "%6d ", node_ptr->number_of_bytes );
+            printf ( "%3d ", node_ptr->number_of_bytes );
 
         /* bug: how to deal with -c -u override */
         if ( f_c_option )
@@ -452,11 +470,10 @@ void print_file_info_list()
     /* 
         -w
     */
-/*
     if ( f_w_option || !isatty(1) )
     {
+        /* */
     }
-*/
 
     /* 
         sort the file_info list if needed
@@ -477,7 +494,6 @@ void print_file_info_list()
                 file_info_list_head = sort_by_size_desc ( file_info_list_head );
             else
                 file_info_list_head = sort_by_size_asce ( file_info_list_head );
-                
         }
         else
         {
@@ -489,12 +505,67 @@ void print_file_info_list()
     }
 
     /*
-        printing
+        get a total sum for all the file sizes ( blocks )
+        -l -n -s
     */
 
-    /* get linked list head */ 
-    struct file_info * node_ptr = file_info_list_head;
+    struct file_info * ptr = file_info_list_head;
+    unsigned long long sum = 0;
+    if ( ! f_d_option )
+    { 
+        if ( f_l_option || f_n_option || ( f_s_option && isatty (1) ) )
+        {
+            while ( ptr != NULL )
+            {
+                if ( f_A_option )
+                {
+                    /* ignore . and .. */
+                    if ( ! ( strcmp ( ptr->path_name, "." ) &&
+                             strcmp ( ptr->path_name, "..") ))
+                    {
+                        sum += 0;
+                        ptr = ptr->next;
+                    }
+                    else
+                    {
+                        sum += ptr->number_of_blocks;  
+                        ptr = ptr->next;
+                    }
 
+                }
+                else if ( ! f_a_option )
+                {
+                    /* 
+                        default output doesn't print file
+                        whose names begin with a dot ('.') 
+                    */ 
+                    if ( ptr->path_name[0] == '.' )
+                    {
+                        sum += 0;
+                        ptr = ptr->next;
+                    }
+                    else
+                    {
+                        sum += ptr->number_of_blocks;  
+                        ptr = ptr->next;
+                    }
+                }
+                else
+                {
+                    sum += ptr->number_of_blocks;  
+                    ptr = ptr->next;
+                }
+            }
+
+            printf ( "total %lld\n", sum );
+        }
+    }
+
+    /*
+        out put
+    */
+
+    struct file_info * node_ptr = file_info_list_head;
     if ( node_ptr == NULL )
     {
         return;
@@ -753,9 +824,6 @@ struct file_info * sort_by_size_asce ( struct file_info * pList )
     return pSorted;
 }
 
-
-
-
 /*
     program entry
 */
@@ -787,6 +855,7 @@ int main ( int argc, char ** argv )
                 break;
             case 'c':
                 f_c_option = 1;
+                f_u_option = 0;     /* override -u */
                 break;
             case 'd':
                 f_d_option = 1;
@@ -799,18 +868,25 @@ int main ( int argc, char ** argv )
                 break;
             case 'h':
                 f_h_option = 1;
+                f_k_option = 0;     /* override -k */
                 break;
             case 'i':
                 f_i_option = 1;
                 break;
+            case 'k':
+                f_k_option = 1;
+                f_h_option = 0;     /* override -h */
+                break;
 			case 'l':
 				f_l_option = 1;
+                f_1_option = 0;
 				break;
             case 'n':
                 f_n_option = 1;
                 break;
             case 'q':
                 f_q_option = 1;
+                f_w_option = 0;
                 break;
             case 'R':
                 f_R_option = 1;
@@ -829,12 +905,15 @@ int main ( int argc, char ** argv )
                 break;
 			case 'u':
                 f_u_option = 1;
+                f_c_option = 0;     /* override -c */
                 break;
             case 'w':
                 f_w_option = 1;
+                f_q_option = 0;
                 break;
             case '1':
                 f_1_option = 1;
+                f_l_option = 0;
                 break;
             default:
 				usage();
@@ -850,7 +929,7 @@ int main ( int argc, char ** argv )
 
 	/* 
         If no operands are given, the contents of the current 
-        directory are displayed. 
+        directory ( "." ) are displayed. 
     */
 	
     if ( argc == 0 )
@@ -858,7 +937,7 @@ int main ( int argc, char ** argv )
         // -d 
         if ( f_d_option )
         {
-            stat_ret = stat ( curr_dir, &stat_buf );
+            stat_ret = lstat ( curr_dir, &stat_buf );
             if ( stat_ret < 0 )
             {
                 fprintf ( stderr, "stat error\n" );
@@ -889,9 +968,9 @@ int main ( int argc, char ** argv )
 
             while ( ( dirp = readdir(dp) ) != NULL )
             {
-                if ( stat ( dirp->d_name, &stat_buf ) < 0 )
+                if ( lstat ( dirp->d_name, &stat_buf ) < 0 )
                 {
-                    fprintf ( stderr, "stat() error" );
+                    fprintf ( stderr, "lstat() error" );
                     exit (1);
                 }
                 
@@ -966,7 +1045,6 @@ int main ( int argc, char ** argv )
             
             fts_close ( ftsp );
 
-
             exit (0);
         }
     }
@@ -984,7 +1062,7 @@ int main ( int argc, char ** argv )
         /* RE-initialize head of file_info linked list */
         file_info_list_head = NULL;
 
-		stat_ret = stat ( *argv, &stat_buf );
+		stat_ret = lstat ( *argv, &stat_buf );
 		if ( stat_ret < 0 )
 		{
 			fprintf ( stderr, "stat error\n" );
@@ -1007,10 +1085,10 @@ int main ( int argc, char ** argv )
             */
             if ( f_d_option )
             {
-                stat_ret = stat ( *argv, &stat_buf );
+                stat_ret = lstat ( *argv, &stat_buf );
                 if ( stat_ret < 0 )
                 {
-                    fprintf ( stderr, "stat error\n" );
+                    fprintf ( stderr, "lstat error\n" );
                     argv++;
                     continue;
                 }
@@ -1040,7 +1118,7 @@ int main ( int argc, char ** argv )
 
                 while ( ( dirp = readdir(dp) ) != NULL )
                 {
-                    if ( stat ( dirp->d_name, &stat_buf ) < 0 )
+                    if ( lstat ( dirp->d_name, &stat_buf ) < 0 )
                     {
                         fprintf ( stderr, "stat() error" );
                         exit (1);
