@@ -27,21 +27,29 @@
 #include <fts.h>
 #include <ctype.h>
 
-#define DEBUG
 
-/* if DARWIN has defined, it means this program will be run at MacOS;
-   or it means the program will be run at Linux. */
-#define DARWIN
+/* 
+#define LINUX-LAB
+*/
+
+#ifdef LINUX-LAB
+    #include <bsd/string.h>
+#endif
 
 /*
 #define ENABLE_H_OPTION
 */
 
 #ifdef ENABLE_H_OPTION
-#include <libutil.h>    /* for humanize_number() */
+    #include <libutil.h>    /* for humanize_number() */
 #endif
 
-#define COLUMNS 5 
+/* if environment variable COLUMNS is not defined or can't find, use this macro */
+#define COLUMNS 5
+
+/* print debug info */
+#define DEBUG
+
 
 /*
     data structures
@@ -49,10 +57,6 @@
 
 struct file_info
 {
-    int number;     /* mark the number */
-/*
-    struct stat stat;
-*/  
     long inode_number;
     char type_permission_info[255];
     char file_type;
@@ -86,6 +90,7 @@ struct file_info
 
 struct file_info * file_info_list_head = NULL;
 
+int g_print_count;  /* marked how many file_info node have been out put */
 
 /*
     function prototypes
@@ -101,6 +106,7 @@ struct file_info * sort_by_lexi_rev ( struct file_info * pList );
 struct file_info * sort_by_size_desc ( struct file_info * pList );
 struct file_info * sort_by_size_asce ( struct file_info * pList );
 
+
 /* 
     flags 
 */
@@ -109,6 +115,9 @@ int f_A_option;     /* except . .. */
 
 int f_a_option;     /* include directory entries whose names begin 
                        with a dot ('.') */
+
+int f_C_option;     /* Force multi-column output; this is the default
+                       when output is to a terminal.*/
 
 int f_c_option;     /* use time when file status was last changed, 
                        instead of time of last modification of the
@@ -180,8 +189,9 @@ int f_1_option;     /* force output to be one entry per line.
                        This is the default when output is not
                        to a terminal. */
 
-
-int g_print_count;  /* marked how many file_info node have been out put */
+/*
+    banner
+*/
 
 void usage()
 {
@@ -347,9 +357,9 @@ void record_stat( struct stat * statp, char * path_name )
 
 int get_file_info_list_length ()
 {
-    struct file_info * ptr = file_info_list_head;
-    
     int len = 0;
+    struct file_info * ptr = file_info_list_head;
+
     while ( ptr != NULL )
     {
         len++;
@@ -387,7 +397,7 @@ void print_with_proper_option(struct file_info * node_ptr)
     }
 
     if ( f_i_option )
-        printf ( "%ld ", node_ptr->inode_number );
+        printf ( "%10ld ", node_ptr->inode_number );
 
     if ( f_s_option )
     {
@@ -405,7 +415,7 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%3s ", szbuf );
+            printf ( "%10s ", szbuf );
         }
         else if ( f_k_option )
         {
@@ -420,12 +430,12 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%3s ", szbuf );
+            printf ( "%10s ", szbuf );
              
         }
         else
 #endif
-            printf ( "%3lld ", node_ptr->number_of_blocks );
+            printf ( "%10lld ", node_ptr->number_of_blocks );
     }
    
     /* long format flag specified */
@@ -435,7 +445,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 
         printf ( "%s ", node_ptr->type_permission_info );
         
-        printf ( "%2d ",node_ptr->number_of_links );
+        printf ( "%10d ",node_ptr->number_of_links );
         
         if ( f_l_option )
             printf ( "%s ", node_ptr->owner_name );
@@ -461,13 +471,12 @@ void print_with_proper_option(struct file_info * node_ptr)
                 fprintf ( stderr, "humanize_number()" );
                 exit(1);
             }
-            printf ( "%3s ", szbuf );
+            printf ( "%s ", szbuf );
         }
         else
 #endif
-            printf ( "%3d ", node_ptr->number_of_bytes );
+            printf ( "%10d ", node_ptr->number_of_bytes );
 
-        /* bug: how to deal with -c -u override */
         if ( f_c_option )
             printf ( "%s ", node_ptr->last_change_time );
         else if ( f_u_option )
@@ -503,6 +512,9 @@ void print_with_proper_option(struct file_info * node_ptr)
         if ( isatty (1) || f_1_option || !isatty (1) )
             printf ( "\n" );
     }
+    /* 
+        short output format
+    */
     else 
     {
         printf ( "%s", node_ptr->path_name );
@@ -527,7 +539,6 @@ void print_with_proper_option(struct file_info * node_ptr)
             {
                 col = atoi ( columns );
             }
-
             
             if ( (g_print_count-1) % col == 0 )
             {
@@ -653,22 +664,92 @@ void print_file_info_list()
 
     struct file_info * node_ptr = file_info_list_head;
     
-    g_print_count = 0;
-    
-    while ( node_ptr != NULL )
+    /* --- process -C --- */
+    /* .....!!!! */
+    if ( f_C_option )
     {
-        print_with_proper_option ( node_ptr );
-        node_ptr = node_ptr->next;
-        g_print_count ++;
-    }
+        /* 1. create a matrix */
+        char * columns_str = "COLUMNS"; 
+        char * columns;
+        int col = 0;
+        int row = 0;
+        int file_info_list_len = get_file_info_list_length();
+        columns = getenv ( columns_str );
+        if ( NULL == columns )
+        {
+            col = COLUMNS;
+        }
+        else
+        {
+            col = atoi ( columns );
+        }
+        row = file_info_list_len/col;
 
-    if ( f_x_option )
+        int c = 0, r = 0;
+        struct file_info * matrix [row][col];
+#ifdef DEBUG
+        printf ( "\n### row = %d, col = %d\n", row, col );
+#endif       
+/*
+        for ( r = 0; r <= row; r++ )
+            for ( c = 0; c <= col; c++ )
+                matrix[r][c] = NULL;
+*/
+        /* 2. fill the matrix */
+        for ( c = 0; c <= col; c++ )
+        {
+            for ( r = 0; r <= row; r++ )
+            {
+                if ( node_ptr != NULL )
+                {
+                    matrix [r][c] = node_ptr;
+#ifdef DEBUG
+                    printf ( "## %s\n", node_ptr->path_name );
+#endif            
+                    node_ptr = node_ptr->next;
+                }
+            }
+        }
+         
+        /* 3. output matrix column by column */
+
+        for ( r = 0; r <= row; r++ )
+        {
+            for ( c = 0; c <= col; c++ )
+            {
+                if ( matrix[r][c] != NULL )
+                {
+                    struct file_info * p = matrix [r][c];
+                    printf ( "%s ", p->path_name );
+                }
+            }
+            printf ( "\n" );
+        }
+
+    }
+    /* --- end of -C --- */
+    else
     {
-        /* after the last file, print a newline */
-        printf ( "\n" );
+        g_print_count = 0;
+        
+        while ( node_ptr != NULL )
+        {
+            print_with_proper_option ( node_ptr );
+            node_ptr = node_ptr->next;
+            g_print_count ++;
+        }
+
+        if ( f_x_option )
+        {
+            /* after the last file, print a newline */
+            printf ( "\n" );
+        }
     }
 }
 
+/*
+    sort methods
+*/
 
 struct file_info * sort_by_time_modi_desc ( struct file_info * pList )
 {
@@ -708,7 +789,6 @@ struct file_info * sort_by_time_modi_desc ( struct file_info * pList )
     return pSorted;
 }
 
-
 struct file_info * sort_by_time_modi_asce ( struct file_info * pList )
 {
     /* build up the sorted array from the empty list */
@@ -746,7 +826,6 @@ struct file_info * sort_by_time_modi_asce ( struct file_info * pList )
 
     return pSorted;
 }
-
 
 struct file_info * sort_by_lexi ( struct file_info * pList )
 {
@@ -828,7 +907,6 @@ struct file_info * sort_by_lexi_rev ( struct file_info * pList )
     return pSorted;
 }
 
-
 struct file_info * sort_by_size_desc ( struct file_info * pList )
 {
     /* build up the sorted array from the empty list */
@@ -868,7 +946,6 @@ struct file_info * sort_by_size_desc ( struct file_info * pList )
 
     return pSorted;
 }
-
 
 struct file_info * sort_by_size_asce ( struct file_info * pList )
 {
@@ -943,7 +1020,7 @@ int main ( int argc, char ** argv )
         parse options
     */
 
-	while ( ( ch = getopt(argc, argv, "AacdFfhiklnqRrSstuwx1") ) != -1 )
+	while ( ( ch = getopt(argc, argv, "AaCcdFfhiklnqRrSstuwx1") ) != -1 )
 	{
 		switch (ch)
 		{
@@ -952,6 +1029,10 @@ int main ( int argc, char ** argv )
                 break;
             case 'a':
                 f_a_option = 1;
+                break;
+            case 'C':
+                f_C_option = 1;
+                f_x_option = 0;
                 break;
             case 'c':
                 f_c_option = 1;
@@ -1013,6 +1094,7 @@ int main ( int argc, char ** argv )
                 break;
             case 'x':
                 f_x_option = 1;
+                f_C_option = 0;
                 break;
             case '1':
                 f_1_option = 1;
@@ -1296,4 +1378,5 @@ int main ( int argc, char ** argv )
 	} /* endof while ( argc-- > 0 ) */
 
 	exit(0);
-}
+
+} /* end of main() */
