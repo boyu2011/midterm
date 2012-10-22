@@ -1146,6 +1146,7 @@ int main ( int argc, char ** argv )
                 break;
             default:
 				usage();
+                exit(1);
 		}
 	}
 
