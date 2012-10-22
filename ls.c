@@ -41,14 +41,18 @@
 #include <libutil.h>    /* for humanize_number() */
 #endif
 
+#define COLUMNS 5 
+
 /*
     data structures
 */
 
 struct file_info
 {
+    int number;     /* mark the number */
+/*
     struct stat stat;
-    
+*/  
     long inode_number;
     char type_permission_info[255];
     char file_type;
@@ -168,9 +172,16 @@ int f_w_option;     /* force raw printing of non-printable characters,
                        this is the default when output is not to a
                        terminal. */
 
+int f_x_option;     /* The same as -C, except that the multi-column output
+                       is produced with entries sorted across, rather than
+                       down, the columns. */
+
 int f_1_option;     /* force output to be one entry per line.
                        This is the default when output is not
                        to a terminal. */
+
+
+int g_print_count;  /* marked how many file_info node have been out put */
 
 void usage()
 {
@@ -334,6 +345,18 @@ void record_stat( struct stat * statp, char * path_name )
     }
 }
 
+int get_file_info_list_length ()
+{
+    struct file_info * ptr = file_info_list_head;
+    
+    int len = 0;
+    while ( ptr != NULL )
+    {
+        len++;
+        ptr = ptr->next;
+    }
+    return len;
+}
 
 /*
     put out one file_info node info    
@@ -489,12 +512,44 @@ void print_with_proper_option(struct file_info * node_ptr)
                 printf ( "%c", node_ptr->file_type );
         }  
 
-        /* list one entry per line to standard output */
-        if ( isatty (1) || f_1_option || !isatty (1) )
-            printf ( "\n" );
+        if ( f_x_option )
+        {
+            char * columns_str = "COLUMNS";
+            char * columns;
+            int col = 0;
+
+            columns = getenv ( columns_str );
+            if ( NULL == columns )
+            {
+                col = COLUMNS;
+            }
+            else
+            {
+                col = atoi ( columns );
+            }
+
+            
+            if ( (g_print_count-1) % col == 0 )
+            {
+                printf ( "\n" ); 
+            }
+            else
+            {
+                printf ( "\t" );
+            }
+        }
+        else
+        {
+            /* list one entry per line to standard output */
+            if ( isatty (1) || f_1_option || !isatty (1) )
+                printf ( "\n" );
+        }
     }
 }
 
+/*
+    out put each node of file_info list 
+*/
 
 void print_file_info_list()
 {
@@ -593,24 +648,24 @@ void print_file_info_list()
     }
 
     /*
-        out put
+        out put each node
     */
 
     struct file_info * node_ptr = file_info_list_head;
-    if ( node_ptr == NULL )
+    
+    g_print_count = 0;
+    
+    while ( node_ptr != NULL )
     {
-        return;
+        print_with_proper_option ( node_ptr );
+        node_ptr = node_ptr->next;
+        g_print_count ++;
     }
-    else
-    {
-        while ( node_ptr->next != NULL )
-        {
-            print_with_proper_option(node_ptr);
-            
-            node_ptr = node_ptr->next;
-        }
 
-        print_with_proper_option(node_ptr);
+    if ( f_x_option )
+    {
+        /* after the last file, print a newline */
+        printf ( "\n" );
     }
 }
 
@@ -888,7 +943,7 @@ int main ( int argc, char ** argv )
         parse options
     */
 
-	while ( ( ch = getopt(argc, argv, "AacdFfhiklnqRrSstuw1") ) != -1 )
+	while ( ( ch = getopt(argc, argv, "AacdFfhiklnqRrSstuwx1") ) != -1 )
 	{
 		switch (ch)
 		{
@@ -955,6 +1010,9 @@ int main ( int argc, char ** argv )
             case 'w':
                 f_w_option = 1;
                 f_q_option = 0;
+                break;
+            case 'x':
+                f_x_option = 1;
                 break;
             case '1':
                 f_1_option = 1;
