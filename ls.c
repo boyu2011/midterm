@@ -27,9 +27,7 @@
 #include <fts.h>
 #include <ctype.h>
 
-/*
 #define DEBUG
-*/
 
 /* if DARWIN has defined, it means this program will be run at MacOS;
    or it means the program will be run at Linux. */
@@ -213,10 +211,10 @@ void record_stat( struct stat * statp, char * path_name )
     
     if ( S_ISDIR ( statp->st_mode ) )
         new_node->file_type = '/';
-    else if ( access ( path_name, X_OK ) == 0)  /* executable file */
-        new_node->file_type = '*';
     else if ( S_ISLNK ( statp->st_mode ) )
         new_node->file_type = '@';
+    else if (!access ( path_name, X_OK ))  /* executable file */
+        new_node->file_type = '*';
 #ifdef S_ISWHT
     else if ( S_ISWHT (statp->st_mode) )
         new_node->file_type = '%';
@@ -301,7 +299,24 @@ void record_stat( struct stat * statp, char * path_name )
    
     /* get number of file system blocks actually used */
 
-    new_node->number_of_blocks = statp->st_blocks;
+    char * blocksize_str;
+    char * blocksize_constant = "BLOCKSIZE";
+    unsigned long long blocksize = 0;
+    unsigned long long n = 0;
+
+    blocksize_str = getenv ( blocksize_constant );
+    
+    if ( NULL == blocksize_str )
+    {
+        /* ENV BLOCKSIZE is not set, so use default value */
+        new_node->number_of_blocks = statp->st_blocks;
+    }
+    else
+    {
+        blocksize = strtoll ( blocksize_str, NULL, 0 );
+        n = blocksize / 512;   
+        new_node->number_of_blocks = statp->st_blocks / n;
+    }
 
     /* 
         add new node into list 
@@ -436,13 +451,29 @@ void print_with_proper_option(struct file_info * node_ptr)
             printf ( "%s ", node_ptr->last_access_time );
         else
             printf ( "%s ", node_ptr->last_modi_time );
-        
+       
+        /* print path name */
         printf ( "%s", node_ptr->path_name );
-        
+
         if ( f_F_option )
         {
             if ( node_ptr->file_type != ' ' )
-                printf ( "%c", node_ptr->file_type );
+                printf ( "%c ", node_ptr->file_type );
+        }
+        
+        if ( node_ptr->file_type == '@' )
+        {
+            char link_path [100];
+            
+            int ret = readlink ( node_ptr->path_name, link_path,
+                sizeof(link_path)/sizeof(link_path[0]) );
+            if ( ret == -1 )
+            {
+                fprintf ( stderr, "readlink() error : %s\n",
+                    strerror ( errno ) );
+                exit(1);
+            }
+            printf ( "-> %s ", link_path ); 
         }
     
         /* list one entry per line to standard output */
@@ -838,7 +869,21 @@ int main ( int argc, char ** argv )
     struct stat stat_buf;
     DIR * dp;
 	struct dirent * dirp;
+
+    /*
+        -A is always set for the super user
+    */
+
+    if ( !getuid() )
+        f_A_option = 1;
+
+    /*
+        The  tzset()  function initializes the tzname variable 
+        from the TZ environment variable. 
+    */
 	
+    tzset();
+
     /* 
         parse options
     */
@@ -1004,14 +1049,6 @@ int main ( int argc, char ** argv )
                 {
                     /* directory */ 
                     case FTS_D:
-                        /*
-                        only put out one layer files
-                        BUG!! when ../../ */
-                        /*
-                        if ( p->fts_level != FTS_ROOTLEVEL && 
-                               !f_R_option )
-                            break;
-                        */
 #ifdef DEBUG
                         printf ( "^^%s\n", p->fts_name );
 #endif
@@ -1053,19 +1090,31 @@ int main ( int argc, char ** argv )
         loop file arguments 
     */
 
+    /* save current directory path */
+    char save_current_dir [255];
+    getcwd ( save_current_dir, sizeof(save_current_dir) / sizeof(save_current_dir[0]) ); 
+
 	while (argc-- > 0)
 	{
 #ifdef DEBUG
-        printf ( "\n### processing argv : %s\n", *argv );
+        printf ( "\n## processing argv : %s\n", *argv );
 #endif
+        
+        /* enter original working directory */
+        if ( chdir(save_current_dir) == -1 )
+        {
+            fprintf ( stderr, "can't chdir to '%s': %s\n",
+                save_current_dir, strerror(errno) );
+            exit (1);
+        }
 
         /* RE-initialize head of file_info linked list */
         file_info_list_head = NULL;
 
-		stat_ret = lstat ( *argv, &stat_buf );
+        stat_ret = lstat ( *argv, &stat_buf );
 		if ( stat_ret < 0 )
 		{
-			fprintf ( stderr, "stat error\n" );
+			fprintf ( stderr, "stat error for %s\n", *argv );
             argv++;
 			continue;   /* to process the next argv */
 		}
@@ -1079,7 +1128,6 @@ int main ( int argc, char ** argv )
         /* argument is a directory */
         else if ( S_ISDIR ( stat_buf.st_mode ) )
         {
-
             /* -d means we need just print directory info
                (not recursively)
             */
@@ -1115,7 +1163,7 @@ int main ( int argc, char ** argv )
                         *argv, strerror(errno) );
                     exit (1);
                 }
-
+                
                 while ( ( dirp = readdir(dp) ) != NULL )
                 {
                     if ( lstat ( dirp->d_name, &stat_buf ) < 0 )
