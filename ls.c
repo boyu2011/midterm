@@ -5,10 +5,7 @@
  * SYNOPSIS
  * ls [-AacdFfhiklnqRrSstuw1] [file ...]
  *
- * Author: BoYu (boyu2011@gamil.com)
- *
- *
- * bug: how to deal with -c and -u override each other!!
+ * Author: BoYu (byu1@stevens.edu)
  *
  */
 
@@ -27,12 +24,16 @@
 #include <fts.h>
 #include <ctype.h>
 
-
-/* 
-#define LINUX-LAB
+/* print debug info */
+/*
+#define DEBUG
 */
 
-#ifdef LINUX-LAB
+/*
+#define LINUXLAB
+*/
+
+#ifdef LINUXLAB
     #include <bsd/string.h>
 #endif
 
@@ -44,15 +45,15 @@
     #include <libutil.h>    /* for humanize_number() */
 #endif
 
-/* if environment variable COLUMNS is not defined or can't find, use this macro */
+/* if environment variable COLUMNS is not defined or can't find, use this. */
 #define COLUMNS 5
-
-/* print debug info */
-#define DEBUG
-
 
 /*
     data structures
+*/
+
+/*
+    struct file_info represents a file info which got from struct stat
 */
 
 struct file_info
@@ -81,16 +82,17 @@ struct file_info
 
     unsigned long long number_of_blocks;
 
-    struct file_info * next;
+    struct file_info * next;            /* link to next node */
 };
 
 /* 
     global variables
 */
 
-struct file_info * file_info_list_head = NULL;
+struct file_info * file_info_list_head = NULL;  /* list head */
 
 int g_print_count;  /* marked how many file_info node have been out put */
+
 
 /*
     function prototypes
@@ -98,7 +100,9 @@ int g_print_count;  /* marked how many file_info node have been out put */
 
 void usage();
 void record_stat( struct stat * statp, char * path_name );
-void display(struct dirent * dirp);
+int get_file_info_list_length ();
+void print_with_proper_option(struct file_info * node_ptr);
+void print_file_info_list();
 struct file_info * sort_by_time_modi_desc ( struct file_info * pList );
 struct file_info * sort_by_time_modi_asce ( struct file_info * pList );
 struct file_info * sort_by_lexi ( struct file_info * pList );
@@ -195,7 +199,7 @@ int f_1_option;     /* force output to be one entry per line.
 
 void usage()
 {
-	printf("usage: ls [-AacdFfhiklnqRrSstuw1] [file ...]\n");
+	printf("usage: ls [-AaCcdFfhiklnqRrSstuwx1] [file ...]\n");
 }
 
 /*
@@ -217,18 +221,24 @@ void record_stat( struct stat * statp, char * path_name )
     new_node->next = NULL;
     
     /* 
-       assign file stat info to file info structure 
+       assign file stat info into file_info structure 
     */
    
-    /* get file's file serial number (inode number) */
+    /* 
+        get file's file serial number (inode number)
+    */
 
     new_node->inode_number = statp->st_ino;
 
-    /* get file type and permissons */
+    /* 
+        get file type and permissons
+    */
     
     strmode ( statp->st_mode, new_node->type_permission_info );
    
-    /* get file type */
+    /* 
+        get file type
+    */
     
     if ( S_ISDIR ( statp->st_mode ) )
         new_node->file_type = '/';
@@ -245,27 +255,37 @@ void record_stat( struct stat * statp, char * path_name )
     else if ( S_ISFIFO ( statp->st_mode ) )
         new_node->file_type = '|';
 
-    /* get file number of links */
+    /* 
+        get file number of links 
+    */
     
     new_node->number_of_links = statp->st_nlink;
     
-    /* get file owner */
+    /* 
+        get file owner 
+    */
     
     new_node->user_id = statp->st_uid;
     password = getpwuid ( statp->st_uid );
     strcpy ( new_node->owner_name, password->pw_name );
 
-    /* get file group owner */
+    /*
+        get file group owner 
+    */
     
     new_node->group_id = statp->st_gid;
     group = getgrgid ( statp->st_gid );
     strcpy ( new_node->group_name, group->gr_name );
 
-    /* get number of bytes */
+    /* 
+        get number of bytes 
+    */
     
     new_node->number_of_bytes = statp->st_size;
 
-    /* get last access time */
+    /*
+        get last access time
+    */
     
     strftime ( new_node->last_access_time,
                sizeof(new_node->last_access_time),
@@ -274,7 +294,9 @@ void record_stat( struct stat * statp, char * path_name )
 
     new_node->a_time = statp->st_atime;
 
-    /* get last modified time */
+    /*
+        get last modified time
+    */
 
     strftime ( new_node->last_modi_time,
                sizeof(new_node->last_modi_time),
@@ -283,7 +305,9 @@ void record_stat( struct stat * statp, char * path_name )
 
     new_node->m_time = statp->st_mtime; 
 
-    /* get last change time */
+    /*
+        get last change time
+    */
     
     strftime ( new_node->last_change_time,
                sizeof(new_node->last_change_time),
@@ -292,7 +316,9 @@ void record_stat( struct stat * statp, char * path_name )
     
     new_node->c_time = statp->st_ctime;
 
-    /* get file path name */
+    /*
+        get file path name
+    */
    
     if ( isatty (1) || f_q_option )
     {
@@ -318,7 +344,9 @@ void record_stat( struct stat * statp, char * path_name )
     else
         strcpy ( new_node->path_name, path_name );
    
-    /* get number of file system blocks actually used */
+    /*
+        get number of file system blocks actually used
+    */
 
     char * blocksize_str;
     char * blocksize_constant = "BLOCKSIZE";
@@ -335,8 +363,11 @@ void record_stat( struct stat * statp, char * path_name )
     else
     {
         blocksize = strtoll ( blocksize_str, NULL, 0 );
-        n = blocksize / 512;   
-        new_node->number_of_blocks = statp->st_blocks / n;
+        n = blocksize / 512;
+        if ( n == 1 )
+            new_node->number_of_blocks = statp->st_blocks;
+        else
+            new_node->number_of_blocks = statp->st_blocks / n;
     }
 
     /* 
@@ -354,6 +385,10 @@ void record_stat( struct stat * statp, char * path_name )
         node_ptr->next = new_node;
     }
 }
+
+/*
+    get file_info list length
+*/
 
 int get_file_info_list_length ()
 {
@@ -404,7 +439,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 #ifdef ENABLE_H_OPTION
         if ( f_h_option )
         {
-            char szbuf[255];
+            char szbuf[5];
             if ( (humanize_number(szbuf,
                     sizeof(szbuf), 
                     (int64_t)node_ptr->number_of_blocks,
@@ -419,7 +454,7 @@ void print_with_proper_option(struct file_info * node_ptr)
         }
         else if ( f_k_option )
         {
-            char szbuf[255];
+            char szbuf[5];
             if ( (humanize_number(szbuf,
                     sizeof(szbuf), 
                     (int64_t)node_ptr->number_of_blocks,
@@ -435,10 +470,12 @@ void print_with_proper_option(struct file_info * node_ptr)
         }
         else
 #endif
+        {
             printf ( "%10lld ", node_ptr->number_of_blocks );
+        }
     }
    
-    /* long format flag specified */
+    /* long format flag is specified */
 
     if ( f_l_option || f_n_option )
     {
@@ -460,7 +497,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 #ifdef ENABLE_H_OPTION       
         if ( f_h_option )
         {
-            char szbuf[255];
+            char szbuf[5];
             if ( (humanize_number(szbuf,
                     sizeof(szbuf), 
                     (int64_t)node_ptr->number_of_bytes,
@@ -492,7 +529,9 @@ void print_with_proper_option(struct file_info * node_ptr)
             if ( node_ptr->file_type != ' ' )
                 printf ( "%c ", node_ptr->file_type );
         }
-        
+       
+        /* if the file is a symbolic link, the pathname of the 
+           linked-to file is preceded by "->" */
         if ( node_ptr->file_type == '@' )
         {
             char link_path [100];
@@ -523,13 +562,15 @@ void print_with_proper_option(struct file_info * node_ptr)
             if ( node_ptr->file_type != ' ' )
                 printf ( "%c", node_ptr->file_type );
         }  
-
+        
+        /* -x */
         if ( f_x_option )
         {
             char * columns_str = "COLUMNS";
             char * columns;
             int col = 0;
-
+            
+            /* get environment variable COLUMNS */
             columns = getenv ( columns_str );
             if ( NULL == columns )
             {
@@ -559,7 +600,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 }
 
 /*
-    out put each node of file_info list 
+    out put every node of file_info list 
 */
 
 void print_file_info_list()
@@ -659,16 +700,16 @@ void print_file_info_list()
     }
 
     /*
-        out put each node
+        out put every node
     */
 
     struct file_info * node_ptr = file_info_list_head;
     
     /* --- process -C --- */
-    /* .....!!!! */
     if ( f_C_option )
     {
         /* 1. create a matrix */
+
         char * columns_str = "COLUMNS"; 
         char * columns;
         int col = 0;
@@ -696,6 +737,7 @@ void print_file_info_list()
                 matrix[r][c] = NULL;
 */
         /* 2. fill the matrix */
+
         for ( c = 0; c <= col; c++ )
         {
             for ( r = 0; r <= row; r++ )
@@ -1033,6 +1075,8 @@ int main ( int argc, char ** argv )
             case 'C':
                 f_C_option = 1;
                 f_x_option = 0;
+                f_l_option = 0;
+                f_n_option = 0;
                 break;
             case 'c':
                 f_c_option = 1;
@@ -1060,10 +1104,14 @@ int main ( int argc, char ** argv )
                 break;
 			case 'l':
 				f_l_option = 1;
-                f_1_option = 0;
+                f_1_option = 0;     /* override */
+                f_C_option = 0;
+                f_x_option = 0;
 				break;
             case 'n':
                 f_n_option = 1;
+                f_C_option = 0;
+                f_x_option = 0;
                 break;
             case 'q':
                 f_q_option = 1;
@@ -1095,6 +1143,8 @@ int main ( int argc, char ** argv )
             case 'x':
                 f_x_option = 1;
                 f_C_option = 0;
+                f_l_option = 0;
+                f_n_option = 0;
                 break;
             case '1':
                 f_1_option = 1;
@@ -1109,7 +1159,7 @@ int main ( int argc, char ** argv )
 	argv += optind;
 
 	/* 
-        parse file argument
+        parse file argument(s)
     */
 
 	/* 
@@ -1119,7 +1169,7 @@ int main ( int argc, char ** argv )
 	
     if ( argc == 0 )
 	{
-        // -d 
+        /* -d */
         if ( f_d_option )
         {
             stat_ret = lstat ( curr_dir, &stat_buf );
@@ -1134,12 +1184,13 @@ int main ( int argc, char ** argv )
             exit (0);    
         }
         
+        /* non-recursive */
         if ( ! f_R_option )
         {
             /* read directory NAME, and list the files in it */	
             if ( ( dp = opendir(curr_dir) ) == NULL )
             {
-                fprintf ( stderr, "can't open '%s'\n", *argv );
+                fprintf ( stderr, "can't open '%s'\n", curr_dir );
                 exit(1);
             }
 
@@ -1172,13 +1223,13 @@ int main ( int argc, char ** argv )
             
             exit (0);
         }
-        /* -R */
+        /* -R : recursive */
         else
         {
             if ( ( ftsp =
                  fts_open ( &curr_dir, FTS_LOGICAL, NULL ) ) == NULL )
             {
-                fprintf ( stderr, "fts_open error" );
+                fprintf ( stderr, "fts_open() error" );
                 fts_close ( ftsp );
                 exit(1);
             }
@@ -1206,6 +1257,7 @@ int main ( int argc, char ** argv )
 #endif            
                             record_stat ( cur->fts_statp, cur->fts_name );
                         }
+                        
                         print_file_info_list();
                         
                         printf ( "\n" );
@@ -1220,7 +1272,11 @@ int main ( int argc, char ** argv )
                 }
             }
             
-            fts_close ( ftsp );
+            if ( fts_close ( ftsp ) == -1 )
+            {
+                fprintf ( stderr, "fts_close() error.\n" );
+                exit (1);
+            }
 
             exit (0);
         }
@@ -1268,7 +1324,8 @@ int main ( int argc, char ** argv )
         /* argument is a directory */
         else if ( S_ISDIR ( stat_buf.st_mode ) )
         {
-            /* -d means we need just print directory info
+            /* 
+               -d means we need just print directory info
                (not recursively)
             */
             if ( f_d_option )
@@ -1287,6 +1344,7 @@ int main ( int argc, char ** argv )
                 continue;
             }
 
+            /* non-recursive */
             if ( ! f_R_option )
             {
                 /* read directory NAME, and list the files in it */	
@@ -1322,7 +1380,7 @@ int main ( int argc, char ** argv )
                 }
                 print_file_info_list();
             }
-            /* -R */
+            /* -R : recursive */
             else
             {
                 if ( ( ftsp =
@@ -1368,7 +1426,13 @@ int main ( int argc, char ** argv )
                     }
                 }
                 
-                fts_close ( ftsp );
+                if ( -1 == fts_close ( ftsp ) )
+                {
+                    fprintf ( stderr, "fts_close() error.\n" );
+                    argv++;
+                    continue;
+                }
+
                 print_file_info_list();
 	        }	
         }
@@ -1377,6 +1441,7 @@ int main ( int argc, char ** argv )
 
 	} /* endof while ( argc-- > 0 ) */
 
+    /* return with success */
 	exit(0);
 
 } /* end of main() */
