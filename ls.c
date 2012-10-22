@@ -29,17 +29,13 @@
 #define DEBUG
 */
 
-/*
 #define LINUXLAB
-*/
 
 #ifdef LINUXLAB
     #include <bsd/string.h>
 #endif
 
-/*
 #define ENABLE_H_OPTION
-*/
 
 #ifdef ENABLE_H_OPTION
     #include <libutil.h>    /* for humanize_number() */
@@ -482,7 +478,7 @@ void print_with_proper_option(struct file_info * node_ptr)
 
         printf ( "%s ", node_ptr->type_permission_info );
         
-        printf ( "%10d ",node_ptr->number_of_links );
+        printf ( "%6d ",node_ptr->number_of_links );
         
         if ( f_l_option )
             printf ( "%s ", node_ptr->owner_name );
@@ -731,18 +727,16 @@ void print_file_info_list()
 #ifdef DEBUG
         printf ( "\n### row = %d, col = %d\n", row, col );
 #endif       
-/*
-        for ( r = 0; r <= row; r++ )
-            for ( c = 0; c <= col; c++ )
-                matrix[r][c] = NULL;
-*/
+        
         /* 2. fill the matrix */
 
+        int i = 0;
         for ( c = 0; c <= col; c++ )
         {
             for ( r = 0; r <= row; r++ )
             {
-                if ( node_ptr != NULL )
+                i++;
+                if ( (node_ptr != NULL) && (i <= file_info_list_len) )
                 {
                     matrix [r][c] = node_ptr;
 #ifdef DEBUG
@@ -752,22 +746,22 @@ void print_file_info_list()
                 }
             }
         }
-         
+        
         /* 3. output matrix column by column */
-
+        i = 0;
         for ( r = 0; r <= row; r++ )
         {
             for ( c = 0; c <= col; c++ )
             {
-                if ( matrix[r][c] != NULL )
+                i++;
+                if ( i <= file_info_list_len )
                 {
                     struct file_info * p = matrix [r][c];
-                    printf ( "%s ", p->path_name );
+                    printf ( "%20s", p->path_name );
                 }
             }
             printf ( "\n" );
         }
-
     }
     /* --- end of -C --- */
     else
@@ -1437,7 +1431,9 @@ int main ( int argc, char ** argv )
 	        }	
         }
 
-		argv++;
+        printf ( "\n" );
+		
+        argv++;
 
 	} /* endof while ( argc-- > 0 ) */
 
